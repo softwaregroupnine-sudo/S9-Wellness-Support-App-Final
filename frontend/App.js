@@ -1,138 +1,117 @@
 import React from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  Button,
-  StyleSheet
-} from 'react-native';
 
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+
+import LoginScreen from './screens/LoginScreen';
+import RegisterScreen from './screens/RegisterScreen';
+import DashboardScreen from './screens/DashboardScreen';
+import MoodCheckinScreen from './screens/MoodCheckinScreen';
+import AIAnalysisScreen from './screens/AIAnalysisScreen';
+import GuidanceScreen from './screens/GuidanceScreen';
+import SettingsScreen from './screens/SettingsScreen';
+import BreathingExerciseScreen from './screens/BreathingExerciseScreen';
+import FocusTimerScreen from './screens/FocusTimerScreen';
+import GratitudeJournalScreen from './screens/GratitudeJournalScreen';
+import AIChatScreen from './screens/AIChatScreen';
+
 
 const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
 
-function LoginScreen() {
+
+function MainApp() {
   return (
-    <View style={styles.container}>
+    <Tab.Navigator>
 
-      <Text style={styles.title}>
-        Wellness Support
-      </Text>
-
-      <Text style={styles.subtitle}>
-        Welcome back
-      </Text>
-
-      <TextInput
-        style={styles.input}
-        placeholder="Email"
+      <Tab.Screen
+        name="Dashboard"
+        component={DashboardScreen}
       />
 
-      <TextInput
-        style={styles.input}
-        placeholder="Password"
-        secureTextEntry={true}
+      <Tab.Screen
+        name="Check-in"
+        component={MoodCheckinScreen}
       />
 
-      <Button
-        title="Login"
-        onPress={() => alert('Login pressed')}
+      <Tab.Screen
+        name="AI Analysis"
+        component={AIAnalysisScreen}
       />
 
-      <View style={styles.space} />
-
-      <Button
-        title="Register"
-        onPress={() => alert('Register pressed')}
+      <Tab.Screen
+        name="Guidance"
+        component={GuidanceScreen}
       />
 
-    </View>
+      <Tab.Screen
+        name="More"
+        component={SettingsScreen}
+      />
+
+    </Tab.Navigator>
   );
 }
 
-function HomeScreen() {
-  return null;
-}
-
-function AssessmentScreen() {
-  return null;
-}
-
-function ResultScreen() {
-  return null;
-}
-
-function HistoryScreen() {
-  return null;
-}
 
 export default function App() {
   return (
     <NavigationContainer>
+
       <Stack.Navigator>
 
         <Stack.Screen
           name="Login"
           component={LoginScreen}
+          options={{ headerShown: false }}
         />
 
         <Stack.Screen
-          name="Home"
-          component={HomeScreen}
+          name="Register"
+          component={RegisterScreen}
         />
 
         <Stack.Screen
-          name="Assessment"
-          component={AssessmentScreen}
+          name="MainApp"
+          component={MainApp}
+          options={{ headerShown: false }}
         />
 
         <Stack.Screen
-          name="Result"
-          component={ResultScreen}
+          name="BreathingExercise"
+          component={BreathingExerciseScreen}
+          options={{
+            title: 'Breathing Exercise',
+          }}
         />
 
         <Stack.Screen
-          name="History"
-          component={HistoryScreen}
-        />
+          name="FocusTimer"
+          component={FocusTimerScreen}
+         options={{
+        title: 'Focus Timer',
+  }}
+/>
+
+    <Stack.Screen
+    name="GratitudeJournal"
+    component={GratitudeJournalScreen}
+    options={{
+    title: 'Gratitude Journal',
+  }}
+/>
+
+<Stack.Screen
+  name="AIChat"
+  component={AIChatScreen}
+  options={{
+    headerShown: false,
+  }}
+/>
 
       </Stack.Navigator>
+
     </NavigationContainer>
   );
 }
-
-const styles = StyleSheet.create({
-
-  container: {
-    flex: 1,
-    padding: 30,
-    justifyContent: 'center',
-  },
-
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-
-  subtitle: {
-    fontSize: 18,
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-
-  input: {
-    borderWidth: 1,
-    borderColor: '#ccc',
-    padding: 12,
-    marginBottom: 15,
-    borderRadius: 5,
-  },
-
-  space: {
-    height: 10,
-  },
-
-});
