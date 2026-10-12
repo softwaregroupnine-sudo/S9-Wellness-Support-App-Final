@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 
 import {
@@ -7,46 +8,31 @@ import {
   TouchableOpacity,
   TextInput,
   ScrollView,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 
+import { saveMoodCheckin } from '../services/api';
 
-export default function MoodCheckinScreen({ navigation }) {
+export default function MoodCheckinScreen({ navigation, route }) {
+  const user = route.params?.user;
 
   const [selectedMood, setSelectedMood] = useState('Good');
-
   const [note, setNote] = useState('');
-
   const [selectedFeelings, setSelectedFeelings] = useState([
     'Motivated',
     'Anxious',
   ]);
-
   const [saved, setSaved] = useState(false);
-
+  const [saving, setSaving] = useState(false);
 
   const moods = [
-    {
-      name: 'Awful',
-      emoji: '😞',
-    },
-    {
-      name: 'Not Great',
-      emoji: '😕',
-    },
-    {
-      name: 'Okay',
-      emoji: '😐',
-    },
-    {
-      name: 'Good',
-      emoji: '🙂',
-    },
-    {
-      name: 'Amazing',
-      emoji: '😄',
-    },
+    { name: 'Awful', emoji: '😞' },
+    { name: 'Not Great', emoji: '😕' },
+    { name: 'Okay', emoji: '😐' },
+    { name: 'Good', emoji: '🙂' },
+    { name: 'Amazing', emoji: '😄' },
   ];
-
 
   const feelings = [
     'Stressed',
@@ -56,78 +42,76 @@ export default function MoodCheckinScreen({ navigation }) {
     'Calm',
   ];
 
-
   const toggleFeeling = (feeling) => {
+    setSaved(false);
 
     if (selectedFeelings.includes(feeling)) {
-
       setSelectedFeelings(
-        selectedFeelings.filter(item => item !== feeling)
+        selectedFeelings.filter((item) => item !== feeling)
       );
-
     } else {
-
       setSelectedFeelings([
         ...selectedFeelings,
         feeling,
       ]);
+    }
+  };
 
+  const saveCheckin = async () => {
+    if (saving) return;
+
+    const participantId = user?.participant_id;
+
+    if (!participantId) {
+      Alert.alert(
+        'Account information missing',
+        'Your account information could not be found. Please log out and log in again.'
+      );
+      return;
     }
 
+    setSaving(true);
+    setSaved(false);
+
+    try {
+      await saveMoodCheckin(
+        participantId,
+        selectedMood,
+        selectedFeelings,
+        note
+      );
+
+      setSaved(true);
+    } catch (error) {
+      Alert.alert(
+        'Could not save check-in',
+        error.message || 'Please check your connection and try again.'
+      );
+    } finally {
+      setSaving(false);
+    }
   };
-
-
-  const saveCheckin = () => {
-
-    setSaved(true);
-
-    setTimeout(() => {
-      setSaved(false);
-    }, 2500);
-
-  };
-
 
   return (
     <View style={styles.container}>
-
-      {/* Background decoration */}
       <View style={styles.backgroundBlob} />
 
       <View style={styles.decorativeLeaf}>
-        <Text style={styles.leafDecoration}>
-          🌿
-        </Text>
+        <Text style={styles.leafDecoration}>🌿</Text>
       </View>
-
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-
-
-        {/* Header */}
         <View style={styles.header}>
-
           <View style={styles.headerLeft}>
-
-            <Text style={styles.leafIcon}>
-              🍃
-            </Text>
-
-            <Text style={styles.headerTitle}>
-              Mood Check-in
-            </Text>
-
+            <Text style={styles.leafIcon}>🍃</Text>
+            <Text style={styles.headerTitle}>Mood Check-in</Text>
           </View>
-
         </View>
 
-
-        {/* Main Heading */}
         <View style={styles.headingSection}>
-
           <Text style={styles.mainHeading}>
             How are you feeling today?
           </Text>
@@ -139,31 +123,26 @@ export default function MoodCheckinScreen({ navigation }) {
           <Text style={styles.sectionHeading}>
             Mood Check-in
           </Text>
-
         </View>
 
-
-        {/* Mood Options */}
         <View style={styles.moodOptions}>
-
           {moods.map((mood) => {
-
             const isSelected = selectedMood === mood.name;
 
             return (
-
               <TouchableOpacity
                 key={mood.name}
                 style={[
                   styles.moodCard,
                   isSelected && styles.selectedMoodCard,
                 ]}
-                onPress={() => setSelectedMood(mood.name)}
+                onPress={() => {
+                  setSelectedMood(mood.name);
+                  setSaved(false);
+                }}
+                activeOpacity={0.75}
               >
-
-                <Text style={styles.moodEmoji}>
-                  {mood.emoji}
-                </Text>
+                <Text style={styles.moodEmoji}>{mood.emoji}</Text>
 
                 <Text
                   style={[
@@ -173,19 +152,12 @@ export default function MoodCheckinScreen({ navigation }) {
                 >
                   {mood.name}
                 </Text>
-
               </TouchableOpacity>
-
             );
-
           })}
-
         </View>
 
-
-        {/* Note */}
         <View style={styles.noteSection}>
-
           <Text style={styles.noteLabel}>
             Add a note (optional)
           </Text>
@@ -196,11 +168,8 @@ export default function MoodCheckinScreen({ navigation }) {
             placeholderTextColor="#8B7896"
             value={note}
             onChangeText={(text) => {
-
-              if (text.length <= 300) {
-                setNote(text);
-              }
-
+              setNote(text);
+              setSaved(false);
             }}
             multiline
             textAlignVertical="top"
@@ -210,26 +179,18 @@ export default function MoodCheckinScreen({ navigation }) {
           <Text style={styles.characterCount}>
             {note.length}/300
           </Text>
-
         </View>
 
-
-        {/* Feelings */}
         <View style={styles.feelingsSection}>
-
           <Text style={styles.feelingsLabel}>
             What are you feeling? (Select any that apply)
           </Text>
 
-
           <View style={styles.feelingsRow}>
-
             {feelings.map((feeling) => {
-
               const isSelected = selectedFeelings.includes(feeling);
 
               return (
-
                 <TouchableOpacity
                   key={feeling}
                   style={[
@@ -237,8 +198,8 @@ export default function MoodCheckinScreen({ navigation }) {
                     isSelected && styles.selectedFeelingChip,
                   ]}
                   onPress={() => toggleFeeling(feeling)}
+                  activeOpacity={0.75}
                 >
-
                   <Text
                     style={[
                       styles.feelingText,
@@ -248,146 +209,95 @@ export default function MoodCheckinScreen({ navigation }) {
                     {feeling}
                   </Text>
 
-
                   {isSelected && (
-
                     <View style={styles.checkCircle}>
-
-                      <Text style={styles.checkText}>
-                        ✓
-                      </Text>
-
+                      <Text style={styles.checkText}>✓</Text>
                     </View>
-
                   )}
-
                 </TouchableOpacity>
-
               );
-
             })}
-
           </View>
-
         </View>
 
-
-        {/* Save Button */}
         <TouchableOpacity
-          style={styles.saveButton}
+          style={[
+            styles.saveButton,
+            saving && styles.saveButtonDisabled,
+          ]}
           onPress={saveCheckin}
+          disabled={saving}
+          activeOpacity={0.8}
         >
-
-          <Text style={styles.saveButtonText}>
-            Save Check-in
-          </Text>
-
+          {saving ? (
+            <View style={styles.savingContent}>
+              <ActivityIndicator size="small" color="#D8C5EA" />
+              <Text style={styles.saveButtonText}>Saving...</Text>
+            </View>
+          ) : (
+            <Text style={styles.saveButtonText}>
+              Save Check-in
+            </Text>
+          )}
         </TouchableOpacity>
 
-
-        {/* Confirmation */}
         {saved && (
-
           <View style={styles.confirmation}>
-
             <Text style={styles.confirmationText}>
               ✓ Check-in saved successfully
             </Text>
-
           </View>
-
         )}
 
-
-        {/* Empty space before navigation */}
         <View style={styles.bottomSpace} />
-
-
       </ScrollView>
 
-
-      {/* Custom Bottom Navigation */}
       <View style={styles.bottomNav}>
-
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('Dashboard')}
         >
-
-          <Text style={styles.navText}>
-            Dashboard
-          </Text>
-
+          <Text style={styles.navText}>Dashboard</Text>
         </TouchableOpacity>
 
-
-        <TouchableOpacity
-          style={styles.navItem}
-        >
-
-          <Text style={styles.activeNavText}>
-            Mood Check-in
-          </Text>
-
+        <TouchableOpacity style={styles.navItem}>
+          <Text style={styles.activeNavText}>Mood Check-in</Text>
         </TouchableOpacity>
-
 
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('AI Analysis')}
         >
-
-          <Text style={styles.navText}>
-            AI Analysis
-          </Text>
-
+          <Text style={styles.navText}>AI Analysis</Text>
         </TouchableOpacity>
-
 
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('Guidance')}
         >
-
-          <Text style={styles.navText}>
-            Guidance
-          </Text>
-
+          <Text style={styles.navText}>Guidance</Text>
         </TouchableOpacity>
-
 
         <TouchableOpacity
           style={styles.navItem}
           onPress={() => navigation.navigate('More')}
         >
-
-          <Text style={styles.navText}>
-            More
-          </Text>
-
+          <Text style={styles.navText}>More</Text>
         </TouchableOpacity>
-
       </View>
-
     </View>
   );
 }
 
-
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
     backgroundColor: '#DDD5D6',
   },
 
-
   scrollContent: {
     paddingBottom: 30,
   },
-
-
-  /* Background */
 
   backgroundBlob: {
     position: 'absolute',
@@ -401,7 +311,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 160,
   },
 
-
   decorativeLeaf: {
     position: 'absolute',
     top: 85,
@@ -409,34 +318,25 @@ const styles = StyleSheet.create({
     opacity: 0.45,
   },
 
-
   leafDecoration: {
     fontSize: 70,
-    transform: [
-      { rotate: '25deg' },
-    ],
+    transform: [{ rotate: '25deg' }],
   },
-
-
-  /* Header */
 
   header: {
     marginTop: 45,
     marginHorizontal: 20,
   },
 
-
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
   },
 
-
   leafIcon: {
     fontSize: 22,
     marginRight: 7,
   },
-
 
   headerTitle: {
     fontSize: 21,
@@ -444,15 +344,11 @@ const styles = StyleSheet.create({
     color: '#234F4A',
   },
 
-
-  /* Heading */
-
   headingSection: {
     marginTop: 25,
     alignItems: 'center',
     paddingHorizontal: 20,
   },
-
 
   mainHeading: {
     fontSize: 25,
@@ -461,14 +357,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-
   subtitle: {
     marginTop: 7,
     fontSize: 13,
     color: '#65536D',
     textAlign: 'center',
   },
-
 
   sectionHeading: {
     marginTop: 15,
@@ -478,16 +372,12 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-
-  /* Mood Cards */
-
   moodOptions: {
     marginTop: 18,
     marginHorizontal: 20,
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
-
 
   moodCard: {
     width: 58,
@@ -505,18 +395,15 @@ const styles = StyleSheet.create({
     },
   },
 
-
   selectedMoodCard: {
     borderWidth: 2,
     borderColor: '#4A2E6B',
   },
 
-
   moodEmoji: {
     fontSize: 26,
     marginBottom: 7,
   },
-
 
   moodLabel: {
     fontSize: 9,
@@ -524,14 +411,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-
   selectedMoodLabel: {
     color: '#4A2E6B',
     fontWeight: '700',
   },
-
-
-  /* Note */
 
   noteSection: {
     marginTop: 18,
@@ -542,13 +425,11 @@ const styles = StyleSheet.create({
     padding: 13,
   },
 
-
   noteLabel: {
     fontSize: 12,
     fontWeight: '700',
     color: '#4A2E6B',
   },
-
 
   noteInput: {
     flex: 1,
@@ -558,7 +439,6 @@ const styles = StyleSheet.create({
     color: '#4A3C50',
   },
 
-
   characterCount: {
     position: 'absolute',
     right: 12,
@@ -567,14 +447,10 @@ const styles = StyleSheet.create({
     color: '#6D587B',
   },
 
-
-  /* Feelings */
-
   feelingsSection: {
     marginTop: 15,
     marginHorizontal: 20,
   },
-
 
   feelingsLabel: {
     fontSize: 12,
@@ -583,13 +459,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
 
-
   feelingsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-
 
   feelingChip: {
     height: 32,
@@ -603,23 +477,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-
   selectedFeelingChip: {
     backgroundColor: '#D7CBE7',
     borderWidth: 0,
   },
-
 
   feelingText: {
     fontSize: 9,
     color: '#4A2E6B',
   },
 
-
   selectedFeelingText: {
     fontWeight: '600',
   },
-
 
   checkCircle: {
     width: 14,
@@ -631,15 +501,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
-
   checkText: {
     fontSize: 9,
     fontWeight: '800',
     color: '#FFFFFF',
   },
-
-
-  /* Save */
 
   saveButton: {
     marginTop: 18,
@@ -651,6 +517,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 
+  saveButtonDisabled: {
+    opacity: 0.7,
+  },
+
+  savingContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
 
   saveButtonText: {
     fontSize: 14,
@@ -658,14 +534,10 @@ const styles = StyleSheet.create({
     color: '#D8C5EA',
   },
 
-
-  /* Confirmation */
-
   confirmation: {
     marginTop: 8,
     alignItems: 'center',
   },
-
 
   confirmationText: {
     fontSize: 12,
@@ -673,13 +545,9 @@ const styles = StyleSheet.create({
     color: '#4A2E6B',
   },
 
-
   bottomSpace: {
     height: 90,
   },
-
-
-  /* Bottom Navigation */
 
   bottomNav: {
     position: 'absolute',
@@ -696,13 +564,11 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
 
-
   navItem: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-
 
   navText: {
     fontSize: 9,
@@ -710,12 +576,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-
   activeNavText: {
     fontSize: 9,
     fontWeight: '800',
     color: '#241B2C',
     textAlign: 'center',
   },
-
 });

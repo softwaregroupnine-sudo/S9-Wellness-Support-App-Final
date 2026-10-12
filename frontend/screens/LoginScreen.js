@@ -1,57 +1,88 @@
-import React from 'react';
+
+import React, { useState } from 'react';
 
 import {
   View,
   Text,
   TextInput,
   Button,
-  StyleSheet
+  StyleSheet,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 
+import { loginUser } from '../services/api';
 
 export default function LoginScreen({ navigation }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password) {
+      Alert.alert('Missing details', 'Please enter your email and password.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const user = await loginUser(email, password);
+
+      // Keep the authenticated user's details for the next step.
+      navigation.replace('MainApp', { user });
+    } catch (error) {
+      Alert.alert('Login failed', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <View style={styles.container}>
+      <Text style={styles.title}>Wellness Support</Text>
 
-      <Text style={styles.title}>
-        Wellness Support
-      </Text>
-
-      <Text style={styles.subtitle}>
-        Welcome back
-      </Text>
+      <Text style={styles.subtitle}>Welcome back</Text>
 
       <TextInput
         style={styles.input}
         placeholder="Email"
+        value={email}
+        onChangeText={setEmail}
+        keyboardType="email-address"
+        autoCapitalize="none"
+        autoCorrect={false}
+        editable={!loading}
       />
 
       <TextInput
         style={styles.input}
         placeholder="Password"
-        secureTextEntry={true}
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+        autoCapitalize="none"
+        editable={!loading}
       />
 
-      <Button
-        title="Login"
-        onPress={() => navigation.replace('MainApp')}
-      />
+      {loading ? (
+        <ActivityIndicator size="large" />
+      ) : (
+        <Button title="Login" onPress={handleLogin} />
+      )}
 
       <View style={styles.space} />
 
       <Button
         title="Register"
+        disabled={loading}
         onPress={() => navigation.navigate('Register')}
       />
-
     </View>
   );
 }
 
-
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
     padding: 30,
@@ -82,5 +113,4 @@ const styles = StyleSheet.create({
   space: {
     height: 10,
   },
-
 });

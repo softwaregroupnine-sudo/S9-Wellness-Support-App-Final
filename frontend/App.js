@@ -1,3 +1,4 @@
+
 import React from 'react';
 
 import { NavigationContainer } from '@react-navigation/native';
@@ -16,51 +17,51 @@ import FocusTimerScreen from './screens/FocusTimerScreen';
 import GratitudeJournalScreen from './screens/GratitudeJournalScreen';
 import AIChatScreen from './screens/AIChatScreen';
 
-
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+function MainApp({ route }) {
+  const user = route.params?.user;
 
-function MainApp() {
   return (
     <Tab.Navigator>
-
       <Tab.Screen
         name="Dashboard"
         component={DashboardScreen}
+        initialParams={{ user }}
       />
 
       <Tab.Screen
         name="Check-in"
         component={MoodCheckinScreen}
+        initialParams={{ user }}
       />
 
       <Tab.Screen
         name="AI Analysis"
         component={AIAnalysisScreen}
+        initialParams={{ user }}
       />
 
       <Tab.Screen
         name="Guidance"
         component={GuidanceScreen}
+        initialParams={{ user }}
       />
 
       <Tab.Screen
         name="More"
         component={SettingsScreen}
+        initialParams={{ user }}
       />
-
     </Tab.Navigator>
   );
 }
 
-
 export default function App() {
   return (
     <NavigationContainer>
-
       <Stack.Navigator>
-
         <Stack.Screen
           name="Login"
           component={LoginScreen}
@@ -81,37 +82,27 @@ export default function App() {
         <Stack.Screen
           name="BreathingExercise"
           component={BreathingExerciseScreen}
-          options={{
-            title: 'Breathing Exercise',
-          }}
+          options={{ title: 'Breathing Exercise' }}
         />
 
         <Stack.Screen
           name="FocusTimer"
           component={FocusTimerScreen}
-         options={{
-        title: 'Focus Timer',
-  }}
-/>
+          options={{ title: 'Focus Timer' }}
+        />
 
-    <Stack.Screen
-    name="GratitudeJournal"
-    component={GratitudeJournalScreen}
-    options={{
-    title: 'Gratitude Journal',
-  }}
-/>
+        <Stack.Screen
+          name="GratitudeJournal"
+          component={GratitudeJournalScreen}
+          options={{ title: 'Gratitude Journal' }}
+        />
 
-<Stack.Screen
-  name="AIChat"
-  component={AIChatScreen}
-  options={{
-    headerShown: false,
-  }}
-/>
-
+        <Stack.Screen
+          name="AIChat"
+          component={AIChatScreen}
+          options={{ headerShown: false }}
+        />
       </Stack.Navigator>
-
     </NavigationContainer>
   );
 }
