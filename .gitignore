@@ -1,5 +1,44 @@
+
+# Environment variables and secrets
 .env
+.env.*
+!.env.example
+
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+*.pyd
+venv/
+.venv/
+env/
+
+# Database
 database/wellness.db
+*.sqlite
+*.sqlite3
+
+# React Native / Expo / Node
+node_modules/
+.expo/
+.expo-shared/
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Build output
+dist/
+build/
+web-build/
+android/.gradle/
+ios/Pods/
+
+# Temporary files
 backend/tempCodeRunnerFile.py
+*.tmp
+*.log
+
+# Operating system / editor files
+.DS_Store
+Thumbs.db
+.vscode/

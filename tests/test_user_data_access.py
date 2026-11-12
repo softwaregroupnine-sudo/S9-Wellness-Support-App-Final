@@ -3,37 +3,38 @@ import requests
 
 BASE_URL = "http://127.0.0.1:5000"
 
-# A participant ID that should not belong to an existing user
 fake_participant_id = "00000000-0000-4000-8000-000000000000"
 
-try:
-    response = requests.get(
-        f"{BASE_URL}/checkins",
-        params={"participant_id": fake_participant_id},
-        timeout=30
-    )
 
-    print("Status:", response.status_code)
-    print("Response:", response.text)
-
-    if response.status_code in (400, 401, 403, 404):
-        print("PASS: Unknown participant was rejected.")
-    elif response.status_code == 200 and response.json() == []:
-        print(
-            "LIMITED RESULT: No records were returned, "
-            "but this does not prove access control is secure."
-        )
-    else:
-        print(
-            "CHECK: Review whether the endpoint validates "
-            "the participant before returning data."
+def test_user_data_access():
+    try:
+        missing_id_response = requests.get(
+            f"{BASE_URL}/checkins",
+            timeout=30
         )
 
-except requests.exceptions.ConnectionError:
-    print("Could not connect. Check if app.py is running.")
+        assert missing_id_response.status_code == 400, (
+            f"Expected status 400, got {missing_id_response.status_code}"
+        )
 
-except requests.exceptions.Timeout:
-    print("Request timed out.")
+        unknown_id_response = requests.get(
+            f"{BASE_URL}/checkins",
+            params={"participant_id": fake_participant_id},
+            timeout=30
+        )
 
-except requests.exceptions.RequestException as error:
-    print("Request failed:", error)
+        assert unknown_id_response.status_code == 404, (
+            f"Expected status 404, got {unknown_id_response.status_code}"
+        )
+
+        print("PASSED: Check-in access validation is working.")
+        print("Missing participant ID:", missing_id_response.status_code)
+        print("Unknown participant ID:", unknown_id_response.status_code)
+
+    except requests.exceptions.RequestException as error:
+        print("FAILED: Could not complete access validation test.")
+        print(error)
+
+
+if __name__ == "__main__":
+    test_user_data_access()

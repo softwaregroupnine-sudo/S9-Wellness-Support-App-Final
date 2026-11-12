@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 
 import {
@@ -19,7 +18,12 @@ import Svg, {
   Text as SvgText,
 } from 'react-native-svg';
 
-import { getMoodCheckins } from '../services/api';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+import {
+  getMoodCheckins,
+  generateWellnessAnalysis,
+} from '../services/api';
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
@@ -69,12 +73,10 @@ const getMoodScore = (value) => {
     return null;
   }
 
-  // Existing numeric values on a five-point scale.
   if (number >= 1 && number <= 5) {
     return number * 20;
   }
 
-  // Percentage-style values.
   if (number >= 0 && number <= 100) {
     return number;
   }
@@ -94,7 +96,6 @@ const getCheckinDate = (checkin) => {
 
   const dateString = String(rawDate);
 
-  // Parse date-only strings consistently using local time.
   const dateOnly = dateString.match(
     /^(\d{4})-(\d{2})-(\d{2})$/
   );
@@ -123,9 +124,7 @@ const getCheckinDate = (checkin) => {
 
 const startOfDay = (date) => {
   const result = new Date(date);
-
   result.setHours(0, 0, 0, 0);
-
   return result;
 };
 
@@ -167,7 +166,6 @@ const getFeelingList = (checkin) => {
 
 const getPeriodData = (checkins, period) => {
   const today = startOfDay(new Date());
-
   const daysToShow = period === 'Week' ? 7 : 30;
 
   const startDate = new Date(today);
@@ -199,9 +197,7 @@ const getPeriodData = (checkins, period) => {
   const dailyGroups = {};
 
   validCheckins.forEach((checkin) => {
-    const dateKey = formatDateKey(
-      checkin.parsedDate
-    );
+    const dateKey = formatDateKey(checkin.parsedDate);
 
     if (!dailyGroups[dateKey]) {
       dailyGroups[dateKey] = {
@@ -220,7 +216,6 @@ const getPeriodData = (checkins, period) => {
   });
 
   const numberOfPoints = period === 'Week' ? 7 : 5;
-
   const points = [];
 
   if (period === 'Week') {
@@ -246,7 +241,6 @@ const getPeriodData = (checkins, period) => {
       });
     }
   } else {
-    // Five six-day periods cover the last 30 days.
     for (let i = 0; i < numberOfPoints; i += 1) {
       const bucketStart = new Date(startDate);
 
@@ -264,18 +258,16 @@ const getPeriodData = (checkins, period) => {
 
       Object.entries(dailyGroups).forEach(
         ([dateKey, group]) => {
-          const date = new Date(
-            `${dateKey}T12:00:00`
-          );
+          const date = new Date(`${dateKey}T12:00:00`);
 
-        if (
+          if (
             date >= bucketStart &&
             date < new Date(
               bucketEnd.getFullYear(),
               bucketEnd.getMonth(),
               bucketEnd.getDate() + 1
             )
-        ) {
+          ) {
             total += group.total;
             count += group.count;
 
@@ -323,21 +315,10 @@ const getMoodDescription = (score) => {
     return 'No data yet';
   }
 
-  if (score <= 20) {
-    return 'Awful';
-  }
-
-  if (score <= 40) {
-    return 'Not Great';
-  }
-
-  if (score <= 60) {
-    return 'Okay';
-  }
-
-  if (score <= 80) {
-    return 'Good';
-  }
+  if (score <= 20) return 'Awful';
+  if (score <= 40) return 'Not Great';
+  if (score <= 60) return 'Okay';
+  if (score <= 80) return 'Good';
 
   return 'Amazing';
 };
@@ -382,12 +363,10 @@ function MoodChart({ points }) {
     );
   };
 
-  const yForScore = (score) => {
-    return (
-      CHART_PADDING_TOP +
-      ((100 - score) / 100) * plotHeight
-    );
-  };
+  const yForScore = (score) => (
+    CHART_PADDING_TOP +
+    ((100 - score) / 100) * plotHeight
+  );
 
   const plottedPoints = points
     .map((point, index) => {
@@ -498,6 +477,7 @@ export default function AIAnalysisScreen({
   navigation,
   route,
 }) {
+  const insets = useSafeAreaInsets();
   const user = route.params?.user;
 
   const participantId =
@@ -510,6 +490,12 @@ export default function AIAnalysisScreen({
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState('');
+
+  // Backend-generated AI analysis state
+  const [aiAnalysis, setAiAnalysis] = useState(null);
+  const [aiLoading, setAiLoading] = useState(true);
+  const [aiError, setAiError] = useState('');
+  const [aiRefreshing, setAiRefreshing] = useState(false);
 
   const loadCheckins = async (isRefresh = false) => {
     if (!participantId) {
@@ -553,8 +539,52 @@ export default function AIAnalysisScreen({
     }
   };
 
+  // Request personalised analysis from the Flask backend
+  const loadAIAnalysis = async (isRefresh = false) => {
+    if (!participantId) {
+      setAiAnalysis(null);
+      setAiLoading(false);
+      setAiRefreshing(false);
+      setAiError(
+        'Your account information is missing. Please log in again.'
+      );
+      return;
+    }
+
+    if (isRefresh) {
+      setAiRefreshing(true);
+    } else {
+      setAiLoading(true);
+    }
+
+    setAiError('');
+
+    try {
+      const result = await generateWellnessAnalysis(
+        participantId
+      );
+
+      if (!result?.analysis) {
+        throw new Error(
+          'The server did not return a wellness analysis.'
+        );
+      }
+
+      setAiAnalysis(result.analysis);
+    } catch (error) {
+      setAiError(
+        error.message ||
+          'Could not generate your wellness analysis. Please try again.'
+      );
+    } finally {
+      setAiLoading(false);
+      setAiRefreshing(false);
+    }
+  };
+
   useEffect(() => {
     loadCheckins();
+    loadAIAnalysis();
   }, [participantId]);
 
   const periodData = useMemo(
@@ -694,15 +724,41 @@ export default function AIAnalysisScreen({
       });
     });
 
-    const patterns = Object.entries(feelingCounts)
+    return Object.entries(feelingCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 4);
-
-    return patterns;
   }, [validCheckins]);
 
+  // NEW: Open the activity suggested by the AI analysis.
+  const openRecommendedActivity = (activity) => {
+    const activityRoutes = {
+      breathing: 'BreathingExercise',
+      focus_timer: 'FocusTimer',
+      gratitude_journal: 'GratitudeJournal',
+      sleep: 'SleepBetter',
+      talk_to_someone: 'AIChat',
+      movement: 'MoveBody',
+    };
+
+    const activityKey = String(activity || '')
+      .trim()
+      .toLowerCase();
+
+    const routeName = activityRoutes[activityKey];
+
+    if (!routeName) {
+      Alert.alert(
+        'Activity unavailable',
+        'This suggested activity is not available yet.'
+      );
+      return;
+    }
+
+    navigation.navigate(routeName, { user });
+  };
+
   const askAI = () => {
-    if (!user?.participant_id && !user?.participantId) {
+    if (!participantId) {
       Alert.alert(
         'Account information missing',
         'Please log out and log in again before opening AI Chat.'
@@ -719,7 +775,10 @@ export default function AIAnalysisScreen({
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12 },
+        ]}
       >
         <View style={styles.header}>
           <View style={styles.headerLeft}>
@@ -770,6 +829,8 @@ export default function AIAnalysisScreen({
                   ]}
                   onPress={() => setPeriod(item)}
                   activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
                 >
                   <Text
                     style={[
@@ -868,6 +929,7 @@ export default function AIAnalysisScreen({
                 style={styles.retryButton}
                 onPress={() => loadCheckins(true)}
                 disabled={refreshing}
+                accessibilityRole="button"
               >
                 <Text style={styles.retryButtonText}>
                   {refreshing ? 'Refreshing...' : 'Try again'}
@@ -878,15 +940,27 @@ export default function AIAnalysisScreen({
 
           {!loading && !loadError && (
             <TouchableOpacity
-              style={styles.refreshButton}
+              style={[
+                styles.refreshButton,
+                refreshing && styles.refreshButtonDisabled,
+              ]}
               onPress={() => loadCheckins(true)}
               disabled={refreshing}
               activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityLabel="Refresh mood data"
             >
+              {refreshing ? (
+                <ActivityIndicator
+                  size="small"
+                  color={PURPLE}
+                />
+              ) : (
+                <Text style={styles.refreshIcon}>⟳</Text>
+              )}
+
               <Text style={styles.refreshButtonText}>
-                {refreshing
-                  ? 'Refreshing...'
-                  : 'Refresh mood data'}
+                {refreshing ? 'Refreshing...' : 'Refresh'}
               </Text>
             </TouchableOpacity>
           )}
@@ -994,6 +1068,207 @@ export default function AIAnalysisScreen({
           )}
         </View>
 
+        {/* AI-GENERATED WELLNESS ANALYSIS */}
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>
+            Personalised AI Analysis
+          </Text>
+
+          <Text style={styles.sectionSubtitle}>
+            Reflections based on your check-ins and assessments
+          </Text>
+        </View>
+
+        <View style={styles.aiAnalysisCard}>
+          {aiLoading ? (
+            <View style={styles.aiAnalysisLoading}>
+              <ActivityIndicator
+                size="small"
+                color={PURPLE}
+              />
+
+              <Text style={styles.aiAnalysisMuted}>
+                Analysing your wellness history...
+              </Text>
+            </View>
+          ) : aiError ? (
+            <View>
+              <Text style={styles.aiAnalysisError}>
+                {aiError}
+              </Text>
+
+              <TouchableOpacity
+                style={styles.aiAnalysisRetry}
+                onPress={() => loadAIAnalysis(true)}
+                disabled={aiRefreshing}
+                accessibilityRole="button"
+              >
+                {aiRefreshing ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#FFFFFF"
+                  />
+                ) : (
+                  <Text style={styles.aiAnalysisRetryText}>
+                    Try again
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : aiAnalysis ? (
+            <>
+              <Text style={styles.aiAnalysisHeading}>
+                Your wellness reflection
+              </Text>
+
+              <Text style={styles.aiAnalysisBody}>
+                {aiAnalysis.summary ||
+                  'Keep checking in to build a clearer picture of your wellness over time.'}
+              </Text>
+
+              {!!aiAnalysis.mood_trend && (
+                <>
+                  <Text style={styles.aiAnalysisSubheading}>
+                    Mood trend
+                  </Text>
+
+                  <Text style={styles.aiAnalysisBody}>
+                    {aiAnalysis.mood_trend}
+                  </Text>
+                </>
+              )}
+
+              {Array.isArray(aiAnalysis.key_patterns) &&
+                aiAnalysis.key_patterns.length > 0 && (
+                  <>
+                    <Text style={styles.aiAnalysisSubheading}>
+                      Patterns to notice
+                    </Text>
+
+                    {aiAnalysis.key_patterns.map(
+                      (pattern, index) => {
+                        const patternText =
+                          typeof pattern === 'string'
+                            ? pattern
+                            : pattern?.description ||
+                              pattern?.pattern ||
+                              pattern?.title ||
+                              '';
+
+                        if (!patternText) {
+                          return null;
+                        }
+
+                        return (
+                          <View
+                            key={`ai-pattern-${index}`}
+                            style={styles.aiAnalysisBulletRow}
+                          >
+                            <Text style={styles.aiAnalysisBullet}>
+                              •
+                            </Text>
+
+                            <Text style={styles.aiAnalysisBody}>
+                              {patternText}
+                            </Text>
+                          </View>
+                        );
+                      }
+                    )}
+                  </>
+                )}
+
+              {Array.isArray(aiAnalysis.recommendations) &&
+                aiAnalysis.recommendations.length > 0 && (
+                  <>
+                    <Text style={styles.aiAnalysisSubheading}>
+                      Suggested next steps
+                    </Text>
+
+                    {aiAnalysis.recommendations.map(
+                      (recommendation, index) => (
+                        <View
+                          key={`ai-recommendation-${index}`}
+                          style={styles.aiRecommendation}
+                        >
+                          <Text style={styles.aiRecommendationTitle}>
+                            {recommendation.title ||
+                              'Wellness suggestion'}
+                          </Text>
+
+                          {!!recommendation.message && (
+                            <Text style={styles.aiAnalysisBody}>
+                              {recommendation.message}
+                            </Text>
+                          )}
+
+                          {!!recommendation.activity &&
+                            recommendation.activity !== 'none' && (
+                              <TouchableOpacity
+                                style={styles.aiActivityButton}
+                                onPress={() =>
+                                  openRecommendedActivity(
+                                    recommendation.activity
+                                  )
+                                }
+                                activeOpacity={0.7}
+                                accessibilityRole="button"
+                                accessibilityLabel={
+                                  `Open suggested activity: ${
+                                    String(
+                                      recommendation.activity
+                                    ).replace(/_/g, ' ')
+                                  }`
+                                }
+                              >
+                                <Text style={styles.aiActivity}>
+                                  Try this activity:{' '}
+                                  {String(
+                                    recommendation.activity
+                                  ).replace(/_/g, ' ')}
+                                  {' →'}
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                        </View>
+                      )
+                    )}
+                  </>
+                )}
+
+              {!!aiAnalysis.limitations && (
+                <Text style={styles.aiAnalysisDisclaimer}>
+                  {aiAnalysis.limitations}
+                </Text>
+              )}
+
+              <TouchableOpacity
+                style={styles.aiAnalysisRefresh}
+                onPress={() => loadAIAnalysis(true)}
+                disabled={aiRefreshing}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+              >
+                {aiRefreshing ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={PURPLE}
+                  />
+                ) : (
+                  <Text style={styles.aiAnalysisRefreshText}>
+                    ↻ Refresh AI analysis
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <Text style={styles.aiAnalysisMuted}>
+              Your personalised analysis will appear here when available.
+            </Text>
+          )}
+        </View>
+
+        {/* EXISTING ASK AI CARD */}
         <View style={styles.aiCard}>
           <View style={styles.aiCardTop}>
             <View style={styles.aiIconCircle}>
@@ -1016,6 +1291,7 @@ export default function AIAnalysisScreen({
             style={styles.askAIButton}
             onPress={askAI}
             activeOpacity={0.8}
+            accessibilityRole="button"
           >
             <Text style={styles.askAIButtonText}>
               Ask AI
@@ -1033,42 +1309,6 @@ export default function AIAnalysisScreen({
 
         <View style={styles.bottomSpace} />
       </ScrollView>
-
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Dashboard')}
-        >
-          <Text style={styles.navText}>Dashboard</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Check-in')}
-        >
-          <Text style={styles.navText}>Check-in</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.activeNavText}>
-            AI Analysis
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Guidance')}
-        >
-          <Text style={styles.navText}>Guidance</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('More')}
-        >
-          <Text style={styles.navText}>More</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -1096,7 +1336,6 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    marginTop: 45,
     marginHorizontal: 20,
   },
 
@@ -1111,9 +1350,9 @@ const styles = StyleSheet.create({
   },
 
   headerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#234F4A',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#3F4B49',
   },
 
   headerSubtitle: {
@@ -1353,13 +1592,32 @@ const styles = StyleSheet.create({
 
   refreshButton: {
     alignSelf: 'center',
-    marginTop: 8,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
+    marginTop: 12,
+    paddingVertical: 9,
+    paddingHorizontal: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#C9B8E8',
+    backgroundColor: '#F7F1F8',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+  },
+
+  refreshButtonDisabled: {
+    opacity: 0.7,
+  },
+
+  refreshIcon: {
+    fontSize: 20,
+    lineHeight: 22,
+    color: PURPLE,
+    fontWeight: '700',
   },
 
   refreshButtonText: {
-    fontSize: 11,
+    fontSize: 12,
     color: PURPLE,
     fontWeight: '700',
   },
@@ -1509,6 +1767,143 @@ const styles = StyleSheet.create({
     color: MUTED_PURPLE,
   },
 
+  // AI-GENERATED WELLNESS ANALYSIS
+  aiAnalysisCard: {
+    marginHorizontal: 16,
+    padding: 17,
+    borderRadius: 18,
+    backgroundColor: '#FFFFFF',
+    elevation: 2,
+    shadowColor: '#4A2E6B',
+    shadowOpacity: 0.06,
+    shadowRadius: 4,
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+  },
+
+  aiAnalysisLoading: {
+    minHeight: 70,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+
+  aiAnalysisMuted: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: MUTED_PURPLE,
+    textAlign: 'center',
+  },
+
+  aiAnalysisHeading: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+
+  aiAnalysisSubheading: {
+    marginTop: 17,
+    marginBottom: 7,
+    fontSize: 13,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+
+  aiAnalysisBody: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 19,
+    color: '#65536D',
+  },
+
+  aiAnalysisBulletRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 7,
+    gap: 8,
+  },
+
+  aiAnalysisBullet: {
+    fontSize: 14,
+    color: PURPLE,
+  },
+
+  aiRecommendation: {
+    marginTop: 8,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: '#F7F1F8',
+  },
+
+  aiRecommendationTitle: {
+    marginBottom: 5,
+    fontSize: 12,
+    fontWeight: '800',
+    color: PURPLE,
+  },
+
+  // NEW: Clickable suggested activity
+  aiActivityButton: {
+    alignSelf: 'flex-start',
+    marginTop: 7,
+    paddingVertical: 4,
+  },
+
+  aiActivity: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: PURPLE,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+    textDecorationLine: 'underline',
+  },
+
+  aiAnalysisDisclaimer: {
+    marginTop: 14,
+    fontSize: 10,
+    lineHeight: 16,
+    color: MUTED_PURPLE,
+  },
+
+  aiAnalysisError: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#8A3434',
+  },
+
+  aiAnalysisRetry: {
+    marginTop: 12,
+    alignSelf: 'flex-start',
+    minWidth: 90,
+    minHeight: 36,
+    paddingHorizontal: 13,
+    borderRadius: 10,
+    backgroundColor: PURPLE,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  aiAnalysisRetryText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  aiAnalysisRefresh: {
+    marginTop: 16,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+
+  aiAnalysisRefreshText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: PURPLE,
+  },
+
+  // EXISTING ASK AI CARD
   aiCard: {
     marginTop: 24,
     marginHorizontal: 16,
@@ -1587,39 +1982,5 @@ const styles = StyleSheet.create({
 
   bottomSpace: {
     height: 100,
-  },
-
-  bottomNav: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 10,
-    height: 58,
-    borderRadius: 25,
-    backgroundColor: '#C9B8E8',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 4,
-    elevation: 4,
-  },
-
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  navText: {
-    fontSize: 9,
-    color: '#353039',
-    textAlign: 'center',
-  },
-
-  activeNavText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#241B2C',
-    textAlign: 'center',
   },
 });

@@ -17,6 +17,8 @@ import {
   Platform,
 } from 'react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 import {
   sendWellnessMessage,
   getWellnessConversations,
@@ -25,6 +27,8 @@ import {
 } from '../services/api';
 
 export default function AIChatScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
+
   const [message, setMessage] = useState('');
   const [messages, setMessages] = useState([]);
   const [conversationId, setConversationId] = useState(null);
@@ -297,8 +301,17 @@ export default function AIChatScreen({ navigation, route }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
     >
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
+      <View
+        style={[
+          styles.header,
+          { paddingTop: insets.top + 8 },
+        ]}
+      >
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <Text style={styles.backButton}>‹</Text>
         </TouchableOpacity>
 
@@ -307,7 +320,11 @@ export default function AIChatScreen({ navigation, route }) {
           <Text style={styles.headerTitle}>AI Assistant</Text>
         </View>
 
-        <TouchableOpacity onPress={openHistory}>
+        <TouchableOpacity
+          onPress={openHistory}
+          accessibilityRole="button"
+          accessibilityLabel="Open conversation history"
+        >
           <Text style={styles.historyButton}>History</Text>
         </TouchableOpacity>
       </View>
@@ -476,9 +493,9 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    height: 85,
+    minHeight: 60,
     paddingHorizontal: 18,
-    paddingTop: 35,
+    paddingBottom: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -503,10 +520,10 @@ const styles = StyleSheet.create({
   },
 
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: '#4D315C',
-  },
+  fontSize: 24,
+  fontWeight: '700',
+  color: '#4D315C',
+},
 
   historyButton: {
     fontSize: 13,

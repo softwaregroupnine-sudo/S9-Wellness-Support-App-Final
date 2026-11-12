@@ -1,4 +1,3 @@
-
 # Database setup
 
 import sqlite3 as sql
@@ -71,11 +70,14 @@ CREATE TABLE IF NOT EXISTS resources (
 
 CREATE TABLE IF NOT EXISTS interventions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    assessment_id INTEGER NOT NULL,
+    user_id INTEGER,
+    assessment_id INTEGER,
     resource_id INTEGER,
     recommendation_text TEXT NOT NULL,
     intervention_type TEXT,
+    activity_key TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (assessment_id) REFERENCES assessments(id),
     FOREIGN KEY (resource_id) REFERENCES resources(id)
 );
@@ -104,7 +106,21 @@ CREATE TABLE IF NOT EXISTS wellness_chats (
 );
 
 
+CREATE TABLE IF NOT EXISTS journal_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    title TEXT,
+    content TEXT NOT NULL,
+    entry_date DATE NOT NULL
+        DEFAULT (date('now', 'localtime')),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id)
+);
+
+
 -- Indexes to help common queries run efficiently
+
 CREATE INDEX IF NOT EXISTS idx_assessments_user
 ON assessments(user_id);
 
@@ -122,6 +138,12 @@ ON resources(category);
 
 CREATE INDEX IF NOT EXISTS idx_chat_conversations_user
 ON chat_conversations(user_id, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_journal_entries_user_date
+ON journal_entries(user_id, entry_date);
+
+CREATE INDEX IF NOT EXISTS idx_journal_entries_created
+ON journal_entries(created_at);
 """
 
 
@@ -144,21 +166,33 @@ def init_db():
         # Create any missing tables and indexes
         conn.executescript(SCHEMA)
 
-        # Check whether an existing checkins table has the feelings column
+        # Check and add missing check-in columns without deleting
+        # any existing check-in records.
         columns = conn.execute(
             "PRAGMA table_info(checkins)"
         ).fetchall()
 
         column_names = [column["name"] for column in columns]
 
-        # Add the column without deleting existing check-in records
-        if "feelings" not in column_names:
-            conn.execute(
-                "ALTER TABLE checkins ADD COLUMN feelings TEXT"
-            )
+        checkin_columns_to_add = {
+            "feelings": "TEXT",
+            "stress_level": "TEXT",
+            "sleep_quality": "TEXT",
+            "main_concern": "TEXT",
+        }
+
+        for column_name, column_type in checkin_columns_to_add.items():
+            if column_name not in column_names:
+                conn.execute(
+                    f"ALTER TABLE checkins "
+                    f"ADD COLUMN {column_name} {column_type}"
+                )
+                print(
+                    f"Added missing checkins column: {column_name}"
+                )
 
         # Check whether an existing wellness_chats table has
-        # the conversation_id column
+        # the conversation_id column.
         chat_columns = conn.execute(
             "PRAGMA table_info(wellness_chats)"
         ).fetchall()
@@ -167,7 +201,7 @@ def init_db():
             column["name"] for column in chat_columns
         ]
 
-        # Add the column without deleting existing chat records
+        # Add the column without deleting existing chat records.
         if "conversation_id" not in chat_column_names:
             conn.execute("""
                 ALTER TABLE wellness_chats
@@ -176,10 +210,111 @@ def init_db():
             """)
 
         # Create this index after the migration, so it also works
-        # when upgrading an existing database
+        # when upgrading an existing database.
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_wellness_chats_conversation
             ON wellness_chats(conversation_id, created_at)
+        """)
+
+        # --------------------------------------------------
+        # Migrate interventions to support AI recommendations
+        # linked directly to a student, with an optional
+        # assessment and an optional built-in activity key.
+        # Existing intervention records are preserved.
+        # --------------------------------------------------
+
+        intervention_columns = conn.execute(
+            "PRAGMA table_info(interventions)"
+        ).fetchall()
+
+        intervention_column_names = {
+            column["name"] for column in intervention_columns
+        }
+
+        assessment_id_is_required = any(
+            column["name"] == "assessment_id"
+            and column["notnull"] == 1
+            for column in intervention_columns
+        )
+
+        needs_intervention_migration = (
+            assessment_id_is_required
+            or "user_id" not in intervention_column_names
+            or "activity_key" not in intervention_column_names
+        )
+
+        if needs_intervention_migration:
+            print("Migrating interventions table...")
+
+            user_id_expression = (
+                "user_id"
+                if "user_id" in intervention_column_names
+                else "NULL"
+            )
+
+            activity_key_expression = (
+                "activity_key"
+                if "activity_key" in intervention_column_names
+                else "NULL"
+            )
+
+            conn.execute("""
+                CREATE TABLE interventions_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER,
+                    assessment_id INTEGER,
+                    resource_id INTEGER,
+                    recommendation_text TEXT NOT NULL,
+                    intervention_type TEXT,
+                    activity_key TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id),
+                    FOREIGN KEY (assessment_id) REFERENCES assessments(id),
+                    FOREIGN KEY (resource_id) REFERENCES resources(id)
+                )
+            """)
+
+            conn.execute(f"""
+                INSERT INTO interventions_new (
+                    id,
+                    user_id,
+                    assessment_id,
+                    resource_id,
+                    recommendation_text,
+                    intervention_type,
+                    activity_key,
+                    created_at
+                )
+                SELECT
+                    id,
+                    {user_id_expression},
+                    assessment_id,
+                    resource_id,
+                    recommendation_text,
+                    intervention_type,
+                    {activity_key_expression},
+                    created_at
+                FROM interventions
+            """)
+
+            conn.execute("DROP TABLE interventions")
+
+            conn.execute("""
+                ALTER TABLE interventions_new
+                RENAME TO interventions
+            """)
+
+            print("Interventions table migration completed.")
+
+        # Recreate indexes after a possible table rebuild.
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_interventions_assessment
+            ON interventions(assessment_id)
+        """)
+
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_interventions_user
+            ON interventions(user_id)
         """)
 
         conn.commit()

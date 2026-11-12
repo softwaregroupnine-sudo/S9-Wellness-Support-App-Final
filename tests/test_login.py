@@ -4,22 +4,35 @@ import requests
 BASE_URL = "http://127.0.0.1:5000"
 
 user = {
-    "email": "eduv5451861@vossie.com",
-    "password": "password123"
+    "email": "mario@gmail.com",
+    "password": "Mario1234"
 }
 
-try:
-    response = requests.post(
-        f"{BASE_URL}/login",
-        json=user,
-        timeout=10
-    )
 
-    print("Status:", response.status_code)
-    print("Response:", response.text)
+def test_login():
+    try:
+        response = requests.post(
+            f"{BASE_URL}/login",
+            json=user,
+            timeout=10
+        )
 
-except requests.exceptions.ConnectionError:
-    print("Could not connect. Check if app.py is running.")
+        assert response.status_code == 200, (
+            f"Expected status 200, got {response.status_code}"
+        )
 
-except requests.exceptions.Timeout:
-    print("Request timed out.")
+        data = response.json()
+
+        assert isinstance(data, dict), "Expected a JSON response"
+        assert data, "Expected login response data"
+
+        print("PASSED: Login test successful.")
+        print("Response:", data)
+
+    except requests.exceptions.RequestException as error:
+        print("FAILED: Could not complete login test.")
+        print(error)
+
+
+if __name__ == "__main__":
+    test_login()

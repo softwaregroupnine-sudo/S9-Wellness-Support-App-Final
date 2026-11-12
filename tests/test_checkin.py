@@ -10,18 +10,32 @@ checkin = {
     "note": "Testing the mood check-in feature."
 }
 
-try:
-    response = requests.post(
-        f"{BASE_URL}/checkins",
-        json=checkin,
-        timeout=10
-    )
 
-    print("Status:", response.status_code)
-    print("Response:", response.text)
+def test_checkin():
+    try:
+        response = requests.post(
+            f"{BASE_URL}/checkins",
+            json=checkin,
+            timeout=10
+        )
 
-except requests.exceptions.ConnectionError:
-    print("Could not connect. Check if app.py is running.")
+        assert response.status_code in (200, 201), (
+            f"Expected status 200 or 201, got {response.status_code}"
+        )
 
-except requests.exceptions.Timeout:
-    print("Request timed out.")
+        data = response.json()
+
+        assert isinstance(data, dict), "Expected a JSON response"
+        assert data, "Expected a non-empty response"
+
+        print("PASSED: Mood check-in was saved successfully.")
+        print("Status:", response.status_code)
+        print("Response:", data)
+
+    except requests.exceptions.RequestException as error:
+        print("FAILED: Could not complete check-in test.")
+        print(error)
+
+
+if __name__ == "__main__":
+    test_checkin()

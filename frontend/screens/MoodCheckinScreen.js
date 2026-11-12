@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 import {
   View,
@@ -12,19 +11,38 @@ import {
   ActivityIndicator,
 } from 'react-native';
 
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { saveMoodCheckin } from '../services/api';
 
 export default function MoodCheckinScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
   const user = route.params?.user;
 
-  const [selectedMood, setSelectedMood] = useState('Good');
+  const [selectedMood, setSelectedMood] = useState(
+    route.params?.selectedMood || null
+  );
+
   const [note, setNote] = useState('');
-  const [selectedFeelings, setSelectedFeelings] = useState([
-    'Motivated',
-    'Anxious',
-  ]);
+
+  const [selectedFeelings, setSelectedFeelings] = useState([]);
+
+  // New optional check-in fields.
+  const [stressLevel, setStressLevel] = useState(null);
+  const [sleepQuality, setSleepQuality] = useState(null);
+  const [mainConcern, setMainConcern] = useState(null);
+
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Update the selected mood whenever the Dashboard passes a new one.
+  useEffect(() => {
+    const moodFromDashboard = route.params?.selectedMood;
+
+    if (moodFromDashboard) {
+      setSelectedMood(moodFromDashboard);
+      setSaved(false);
+    }
+  }, [route.params?.selectedMood]);
 
   const moods = [
     { name: 'Awful', emoji: '😞' },
@@ -42,12 +60,25 @@ export default function MoodCheckinScreen({ navigation, route }) {
     'Calm',
   ];
 
-  const toggleFeeling = (feeling) => {
+  const stressOptions = ['Low', 'Moderate', 'High'];
+
+  const sleepOptions = ['Poor', 'Fair', 'Good'];
+
+  const concernOptions = [
+    'Academic workload',
+    'Personal concerns',
+    'Social relationships',
+    'Health and sleep',
+    'No particular concern',
+    'Other',
+  ];
+
+  const toggleFeeling = feeling => {
     setSaved(false);
 
     if (selectedFeelings.includes(feeling)) {
       setSelectedFeelings(
-        selectedFeelings.filter((item) => item !== feeling)
+        selectedFeelings.filter(item => item !== feeling)
       );
     } else {
       setSelectedFeelings([
@@ -70,6 +101,14 @@ export default function MoodCheckinScreen({ navigation, route }) {
       return;
     }
 
+    if (!selectedMood) {
+      Alert.alert(
+        'Choose a mood',
+        'Please select how you are feeling before saving.'
+      );
+      return;
+    }
+
     setSaving(true);
     setSaved(false);
 
@@ -78,7 +117,10 @@ export default function MoodCheckinScreen({ navigation, route }) {
         participantId,
         selectedMood,
         selectedFeelings,
-        note
+        note,
+        stressLevel,
+        sleepQuality,
+        mainConcern
       );
 
       setSaved(true);
@@ -92,18 +134,75 @@ export default function MoodCheckinScreen({ navigation, route }) {
     }
   };
 
+  // Reusable option chip for the optional questions.
+  const renderOption = (
+    option,
+    selectedValue,
+    onSelect,
+    keyPrefix = ''
+  ) => {
+    const isSelected = selectedValue === option;
+
+    return (
+      <TouchableOpacity
+        key={`${keyPrefix}${option}`}
+        style={[
+          styles.optionChip,
+          isSelected && styles.selectedOptionChip,
+        ]}
+        onPress={() => {
+          onSelect(isSelected ? null : option);
+          setSaved(false);
+        }}
+        activeOpacity={0.75}
+        accessibilityRole="button"
+        accessibilityLabel={option}
+        accessibilityState={{ selected: isSelected }}
+      >
+        <Text
+          style={[
+            styles.optionText,
+            isSelected && styles.selectedOptionText,
+          ]}
+        >
+          {option}
+        </Text>
+
+        {isSelected && (
+          <View style={styles.checkCircle}>
+            <Text style={styles.checkText}>✓</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <View style={styles.container}>
-      <View style={styles.backgroundBlob} />
+      <View
+        pointerEvents="none"
+        style={styles.backgroundBlob}
+      />
 
-      <View style={styles.decorativeLeaf}>
+      <View
+        style={[
+          styles.decorativeLeaf,
+          { top: insets.top + 45 },
+        ]}
+        pointerEvents="none"
+      >
         <Text style={styles.leafDecoration}>🌿</Text>
       </View>
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12 },
+        ]}
+        keyboardShouldPersistTaps="handled"
       >
+        {/* HEADER */}
         <View style={styles.header}>
           <View style={styles.headerLeft}>
             <Text style={styles.leafIcon}>🍃</Text>
@@ -111,6 +210,7 @@ export default function MoodCheckinScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* INTRODUCTION */}
         <View style={styles.headingSection}>
           <Text style={styles.mainHeading}>
             How are you feeling today?
@@ -125,8 +225,9 @@ export default function MoodCheckinScreen({ navigation, route }) {
           </Text>
         </View>
 
+        {/* MOOD SELECTION */}
         <View style={styles.moodOptions}>
-          {moods.map((mood) => {
+          {moods.map(mood => {
             const isSelected = selectedMood === mood.name;
 
             return (
@@ -141,8 +242,13 @@ export default function MoodCheckinScreen({ navigation, route }) {
                   setSaved(false);
                 }}
                 activeOpacity={0.75}
+                accessibilityRole="button"
+                accessibilityLabel={`Select ${mood.name} mood`}
+                accessibilityState={{ selected: isSelected }}
               >
-                <Text style={styles.moodEmoji}>{mood.emoji}</Text>
+                <Text style={styles.moodEmoji}>
+                  {mood.emoji}
+                </Text>
 
                 <Text
                   style={[
@@ -157,6 +263,7 @@ export default function MoodCheckinScreen({ navigation, route }) {
           })}
         </View>
 
+        {/* NOTE */}
         <View style={styles.noteSection}>
           <Text style={styles.noteLabel}>
             Add a note (optional)
@@ -167,13 +274,14 @@ export default function MoodCheckinScreen({ navigation, route }) {
             placeholder="How was your day? Anything on your mind?"
             placeholderTextColor="#8B7896"
             value={note}
-            onChangeText={(text) => {
+            onChangeText={text => {
               setNote(text);
               setSaved(false);
             }}
             multiline
             textAlignVertical="top"
             maxLength={300}
+            accessibilityLabel="Optional check-in note"
           />
 
           <Text style={styles.characterCount}>
@@ -181,13 +289,14 @@ export default function MoodCheckinScreen({ navigation, route }) {
           </Text>
         </View>
 
+        {/* FEELINGS */}
         <View style={styles.feelingsSection}>
           <Text style={styles.feelingsLabel}>
             What are you feeling? (Select any that apply)
           </Text>
 
           <View style={styles.feelingsRow}>
-            {feelings.map((feeling) => {
+            {feelings.map(feeling => {
               const isSelected = selectedFeelings.includes(feeling);
 
               return (
@@ -199,6 +308,9 @@ export default function MoodCheckinScreen({ navigation, route }) {
                   ]}
                   onPress={() => toggleFeeling(feeling)}
                   activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityLabel={feeling}
+                  accessibilityState={{ selected: isSelected }}
                 >
                   <Text
                     style={[
@@ -220,19 +332,120 @@ export default function MoodCheckinScreen({ navigation, route }) {
           </View>
         </View>
 
+        {/* OPTIONAL WELLNESS QUESTIONS */}
+        <View style={styles.optionalSection}>
+          <View style={styles.optionalHeadingRow}>
+            <Text style={styles.optionalSectionTitle}>
+              A little more about your day
+            </Text>
+
+            <View style={styles.optionalBadge}>
+              <Text style={styles.optionalBadgeText}>
+                OPTIONAL
+              </Text>
+            </View>
+          </View>
+
+          <Text style={styles.optionalDescription}>
+            These extra questions can help personalise your wellness
+            insights. Answer whichever questions you feel comfortable
+            answering, or skip them.
+          </Text>
+
+          {/* STRESS LEVEL */}
+          <View style={styles.questionCard}>
+            <Text style={styles.questionTitle}>
+              1. How would you describe your stress level?
+            </Text>
+
+            <Text style={styles.questionHint}>
+              Choose one, or leave unanswered.
+            </Text>
+
+            <View style={styles.optionsWrap}>
+              {stressOptions.map(option =>
+                renderOption(
+                  option,
+                  stressLevel,
+                  setStressLevel,
+                  'stress-'
+                )
+              )}
+            </View>
+          </View>
+
+          {/* SLEEP QUALITY */}
+          <View style={styles.questionCard}>
+            <Text style={styles.questionTitle}>
+              2. How has your sleep been?
+            </Text>
+
+            <Text style={styles.questionHint}>
+              Think about your recent sleep quality.
+            </Text>
+
+            <View style={styles.optionsWrap}>
+              {sleepOptions.map(option =>
+                renderOption(
+                  option,
+                  sleepQuality,
+                  setSleepQuality,
+                  'sleep-'
+                )
+              )}
+            </View>
+          </View>
+
+          {/* MAIN CONCERN */}
+          <View style={styles.questionCard}>
+            <Text style={styles.questionTitle}>
+              3. What has been your main concern today?
+            </Text>
+
+            <Text style={styles.questionHint}>
+              Choose the option that best describes your day.
+            </Text>
+
+            <View style={styles.optionsWrap}>
+              {concernOptions.map(option =>
+                renderOption(
+                  option,
+                  mainConcern,
+                  setMainConcern,
+                  'concern-'
+                )
+              )}
+            </View>
+          </View>
+
+          <Text style={styles.privacyHint}>
+            Your answers are used alongside your check-in to help
+            personalise your wellness insights. You can leave any
+            question unanswered.
+          </Text>
+        </View>
+
+        {/* SAVE BUTTON */}
         <TouchableOpacity
           style={[
             styles.saveButton,
             saving && styles.saveButtonDisabled,
           ]}
           onPress={saveCheckin}
-          disabled={saving}
+          disabled={saving || !selectedMood}
           activeOpacity={0.8}
+          accessibilityRole="button"
         >
           {saving ? (
             <View style={styles.savingContent}>
-              <ActivityIndicator size="small" color="#D8C5EA" />
-              <Text style={styles.saveButtonText}>Saving...</Text>
+              <ActivityIndicator
+                size="small"
+                color="#D8C5EA"
+              />
+
+              <Text style={styles.saveButtonText}>
+                Saving...
+              </Text>
             </View>
           ) : (
             <Text style={styles.saveButtonText}>
@@ -241,6 +454,7 @@ export default function MoodCheckinScreen({ navigation, route }) {
           )}
         </TouchableOpacity>
 
+        {/* SUCCESS MESSAGE */}
         {saved && (
           <View style={styles.confirmation}>
             <Text style={styles.confirmationText}>
@@ -248,43 +462,7 @@ export default function MoodCheckinScreen({ navigation, route }) {
             </Text>
           </View>
         )}
-
-        <View style={styles.bottomSpace} />
       </ScrollView>
-
-      <View style={styles.bottomNav}>
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Dashboard')}
-        >
-          <Text style={styles.navText}>Dashboard</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.navItem}>
-          <Text style={styles.activeNavText}>Mood Check-in</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('AI Analysis')}
-        >
-          <Text style={styles.navText}>AI Analysis</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('Guidance')}
-        >
-          <Text style={styles.navText}>Guidance</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={styles.navItem}
-          onPress={() => navigation.navigate('More')}
-        >
-          <Text style={styles.navText}>More</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
@@ -313,7 +491,6 @@ const styles = StyleSheet.create({
 
   decorativeLeaf: {
     position: 'absolute',
-    top: 85,
     right: -5,
     opacity: 0.45,
   },
@@ -324,7 +501,6 @@ const styles = StyleSheet.create({
   },
 
   header: {
-    marginTop: 45,
     marginHorizontal: 20,
   },
 
@@ -338,10 +514,11 @@ const styles = StyleSheet.create({
     marginRight: 7,
   },
 
+  // Standard main screen title.
   headerTitle: {
-    fontSize: 21,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#234F4A',
+    color: '#3F4B49',
   },
 
   headingSection: {
@@ -372,6 +549,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
+  // MOOD OPTIONS
   moodOptions: {
     marginTop: 18,
     marginHorizontal: 20,
@@ -416,6 +594,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+  // NOTE
   noteSection: {
     marginTop: 18,
     marginHorizontal: 20,
@@ -447,6 +626,7 @@ const styles = StyleSheet.create({
     color: '#6D587B',
   },
 
+  // FEELINGS
   feelingsSection: {
     marginTop: 15,
     marginHorizontal: 20,
@@ -463,10 +643,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
   },
 
   feelingChip: {
-    height: 32,
+    minHeight: 32,
     paddingHorizontal: 8,
     borderRadius: 16,
     borderWidth: 1,
@@ -507,6 +689,115 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
   },
 
+  // OPTIONAL QUESTIONS
+  optionalSection: {
+    marginTop: 24,
+    marginHorizontal: 20,
+  },
+
+  optionalHeadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  optionalSectionTitle: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#4A2E6B',
+  },
+
+  optionalBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 10,
+    backgroundColor: '#CFC1E1',
+  },
+
+  optionalBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.6,
+    color: '#4A2E6B',
+  },
+
+  optionalDescription: {
+    marginTop: 8,
+    marginBottom: 14,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#65536D',
+  },
+
+  questionCard: {
+    marginBottom: 12,
+    padding: 14,
+    backgroundColor: '#F7F2F5',
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: '#D8C9D9',
+  },
+
+  questionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 19,
+    color: '#4A2E6B',
+  },
+
+  questionHint: {
+    marginTop: 4,
+    marginBottom: 12,
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#786B7C',
+  },
+
+  optionsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+
+  optionChip: {
+    minHeight: 36,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#A38CB5',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  selectedOptionChip: {
+    backgroundColor: '#D7CBE7',
+    borderColor: '#7B5A9B',
+  },
+
+  optionText: {
+    fontSize: 11,
+    color: '#4A2E6B',
+  },
+
+  selectedOptionText: {
+    fontWeight: '700',
+  },
+
+  privacyHint: {
+    marginTop: 2,
+    marginBottom: 4,
+    fontSize: 11,
+    lineHeight: 17,
+    color: '#65536D',
+  },
+
+  // SAVE BUTTON
   saveButton: {
     marginTop: 18,
     marginHorizontal: 16,
@@ -534,6 +825,7 @@ const styles = StyleSheet.create({
     color: '#D8C5EA',
   },
 
+  // SUCCESS MESSAGE
   confirmation: {
     marginTop: 8,
     alignItems: 'center',
@@ -543,43 +835,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: '#4A2E6B',
-  },
-
-  bottomSpace: {
-    height: 90,
-  },
-
-  bottomNav: {
-    position: 'absolute',
-    left: 16,
-    right: 16,
-    bottom: 10,
-    height: 58,
-    borderRadius: 25,
-    backgroundColor: '#C9B8E8',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-around',
-    paddingHorizontal: 4,
-    elevation: 4,
-  },
-
-  navItem: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-
-  navText: {
-    fontSize: 9,
-    color: '#353039',
-    textAlign: 'center',
-  },
-
-  activeNavText: {
-    fontSize: 9,
-    fontWeight: '800',
-    color: '#241B2C',
-    textAlign: 'center',
   },
 });

@@ -1,7 +1,33 @@
 
-const API_BASE_URL = //use your IP 
+import Constants from 'expo-constants';
+
+const hostUri = Constants.expoConfig?.hostUri;
+const host = hostUri?.split(':')[0];
+
+if (!host) {
+  throw new Error(
+    'Could not detect the development server IP. Start Expo in LAN mode.'
+  );
+}
+
+const API_BASE_URL = 'https://unicycle-backpack-finalist.ngrok-free.dev';
+
+const SERVER_ERROR_MESSAGE =
+  'Could not reach the server, check your internet connection.';
+
+async function safeFetch(url, options) {
+  try {
+    return await fetch(url, options);
+  } catch {
+    throw new Error(SERVER_ERROR_MESSAGE);
+  }
+}
 
 async function handleResponse(response, fallbackMessage) {
+  if ([502, 503, 504].includes(response.status)) {
+    throw new Error(SERVER_ERROR_MESSAGE);
+  }
+
   let data;
 
   try {
@@ -17,9 +43,12 @@ async function handleResponse(response, fallbackMessage) {
   return data;
 }
 
+// --------------------------------------------------
 // LOGIN
+// --------------------------------------------------
+
 export async function loginUser(email, password) {
-  const response = await fetch(`${API_BASE_URL}/login`, {
+  const response = await safeFetch(`${API_BASE_URL}/login`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -33,9 +62,12 @@ export async function loginUser(email, password) {
   return handleResponse(response, 'Login failed. Please try again.');
 }
 
+// --------------------------------------------------
 // REGISTER
+// --------------------------------------------------
+
 export async function registerUser(displayName, email, password) {
-  const response = await fetch(`${API_BASE_URL}/register`, {
+  const response = await safeFetch(`${API_BASE_URL}/register`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -53,14 +85,20 @@ export async function registerUser(displayName, email, password) {
   );
 }
 
+// --------------------------------------------------
 // SAVE MOOD CHECK-IN
+// --------------------------------------------------
+
 export async function saveMoodCheckin(
   participantId,
   moodValue,
   feelings,
-  note
+  note,
+  stressLevel = null,
+  sleepQuality = null,
+  mainConcern = null
 ) {
-  const response = await fetch(`${API_BASE_URL}/checkins`, {
+  const response = await safeFetch(`${API_BASE_URL}/checkins`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -70,6 +108,9 @@ export async function saveMoodCheckin(
       mood_value: moodValue,
       feelings,
       note: (note || '').trim(),
+      stress_level: stressLevel,
+      sleep_quality: sleepQuality,
+      main_concern: mainConcern,
     }),
   });
 
@@ -79,24 +120,12 @@ export async function saveMoodCheckin(
   );
 }
 
-// LOAD MOOD CHECK-INS
-export async function getMoodCheckins(participantId) {
-  const response = await fetch(
-    `${API_BASE_URL}/checkins?participant_id=${encodeURIComponent(
-      participantId
-    )}`
-  );
-
-  return handleResponse(
-    response,
-    'Could not load your check-in history.'
-  );
-}
-
+// --------------------------------------------------
 // LOAD MOOD TRENDS
-// Connects to the existing Flask trends endpoint.
+// --------------------------------------------------
+
 export async function getMoodTrends(participantId) {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE_URL}/checkins/trends?participant_id=${encodeURIComponent(
       participantId
     )}`
@@ -108,10 +137,12 @@ export async function getMoodTrends(participantId) {
   );
 }
 
+// --------------------------------------------------
+// LOAD PERSONALIZED GUIDANCE RECOMMENDATIONS
+// --------------------------------------------------
 
- // LOAD PERSONALIZED GUIDANCE RECOMMENDATIONS
 export async function getGuidanceRecommendations(participantId) {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE_URL}/guidance/recommendations?participant_id=${encodeURIComponent(
       participantId
     )}`
@@ -123,9 +154,52 @@ export async function getGuidanceRecommendations(participantId) {
   );
 }
 
+// --------------------------------------------------
+// GENERATE AI WELLNESS ANALYSIS
+// --------------------------------------------------
 
-//SEND A MESSAGE TO THE AI
-//If conversationId is null, the backend creates a new conversation.
+export async function generateWellnessAnalysis(participantId) {
+  const response = await safeFetch(`${API_BASE_URL}/wellness-analysis`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      participant_id: participantId,
+    }),
+  });
+
+  return handleResponse(
+    response,
+    'Could not generate your wellness analysis. Please try again.'
+  );
+}
+
+// --------------------------------------------------
+// LOAD SAVED AI WELLNESS RECOMMENDATIONS FOR DASHBOARD
+// --------------------------------------------------
+
+export async function getSavedWellnessRecommendations(participantId) {
+  if (!participantId) {
+    throw new Error('A participant ID is required to load recommendations.');
+  }
+
+  const response = await safeFetch(
+    `${API_BASE_URL}/wellness-analysis/recommendations?participant_id=${encodeURIComponent(
+      participantId
+    )}`
+  );
+
+  return handleResponse(
+    response,
+    'Could not load your recommended activities. Please try again.'
+  );
+}
+
+// --------------------------------------------------
+// SEND A MESSAGE TO THE AI
+// --------------------------------------------------
+
 export async function sendWellnessMessage(
   participantId,
   questionText,
@@ -140,7 +214,7 @@ export async function sendWellnessMessage(
     body.conversation_id = conversationId;
   }
 
-  const response = await fetch(`${API_BASE_URL}/wellness-chats`, {
+  const response = await safeFetch(`${API_BASE_URL}/wellness-chats`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -154,9 +228,12 @@ export async function sendWellnessMessage(
   );
 }
 
+// --------------------------------------------------
 // LOAD THE USER'S CONVERSATION LIST
+// --------------------------------------------------
+
 export async function getWellnessConversations(participantId) {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE_URL}/wellness-conversations?participant_id=${encodeURIComponent(
       participantId
     )}`
@@ -168,12 +245,15 @@ export async function getWellnessConversations(participantId) {
   );
 }
 
+// --------------------------------------------------
 // LOAD MESSAGES FROM ONE CONVERSATION
+// --------------------------------------------------
+
 export async function getWellnessChatHistory(
   participantId,
   conversationId
 ) {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE_URL}/wellness-chats?participant_id=${encodeURIComponent(
       participantId
     )}&conversation_id=${encodeURIComponent(conversationId)}`
@@ -185,12 +265,15 @@ export async function getWellnessChatHistory(
   );
 }
 
+// --------------------------------------------------
 // DELETE A CONVERSATION AND ITS MESSAGES
+// --------------------------------------------------
+
 export async function deleteWellnessConversation(
   participantId,
   conversationId
 ) {
-  const response = await fetch(
+  const response = await safeFetch(
     `${API_BASE_URL}/wellness-conversations/${encodeURIComponent(
       conversationId
     )}?participant_id=${encodeURIComponent(participantId)}`,
@@ -202,5 +285,230 @@ export async function deleteWellnessConversation(
   return handleResponse(
     response,
     'Could not delete this conversation.'
+  );
+}
+
+// --------------------------------------------------
+// JOURNAL ENTRIES
+// --------------------------------------------------
+
+// SAVE A JOURNAL ENTRY
+
+export async function saveJournalEntry(
+  participantId,
+  title,
+  content,
+  entryDate
+) {
+  const response = await safeFetch(`${API_BASE_URL}/journal-entries`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      participant_id: participantId,
+      title: (title || '').trim() || null,
+      content: content.trim(),
+      ...(entryDate ? { entry_date: entryDate } : {}),
+    }),
+  });
+
+  return handleResponse(
+    response,
+    'Could not save your journal entry. Please try again.'
+  );
+}
+
+// LOAD JOURNAL ENTRIES
+
+export async function getJournalEntries(
+  participantId,
+  entryDate = null,
+  month = null
+) {
+  const params = new URLSearchParams({
+    participant_id: participantId,
+  });
+
+  if (entryDate) {
+    params.append('entry_date', entryDate);
+  } else if (month) {
+    params.append('month', month);
+  }
+
+  const response = await safeFetch(
+    `${API_BASE_URL}/journal-entries?${params.toString()}`
+  );
+
+  return handleResponse(
+    response,
+    'Could not load your journal entries.'
+  );
+}
+
+// LOAD ONE JOURNAL ENTRY
+
+export async function getJournalEntry(participantId, entryId) {
+  const params = new URLSearchParams({
+    participant_id: participantId,
+  });
+
+  const response = await safeFetch(
+    `${API_BASE_URL}/journal-entries/${encodeURIComponent(
+      entryId
+    )}?${params.toString()}`
+  );
+
+  return handleResponse(
+    response,
+    'Could not load this journal entry.'
+  );
+}
+
+// UPDATE A JOURNAL ENTRY
+
+export async function updateJournalEntry(
+  participantId,
+  entryId,
+  title,
+  content,
+  entryDate
+) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/journal-entries/${encodeURIComponent(entryId)}`,
+    {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        participant_id: participantId,
+        title: (title || '').trim() || null,
+        content: content.trim(),
+        entry_date: entryDate,
+      }),
+    }
+  );
+
+  return handleResponse(
+    response,
+    'Could not update your journal entry.'
+  );
+}
+
+// DELETE A JOURNAL ENTRY
+
+export async function deleteJournalEntry(participantId, entryId) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/journal-entries/${encodeURIComponent(
+      entryId
+    )}?participant_id=${encodeURIComponent(participantId)}`,
+    {
+      method: 'DELETE',
+    }
+  );
+
+  return handleResponse(
+    response,
+    'Could not delete your journal entry.'
+  );
+}
+
+// --------------------------------------------------
+// LOAD MOOD CHECK-INS
+// --------------------------------------------------
+
+export const getMoodCheckins = async (participantId) => {
+  if (!participantId) {
+    throw new Error('A participant ID is required to load mood check-ins.');
+  }
+
+  const response = await safeFetch(
+    `${API_BASE_URL}/checkins?participant_id=${encodeURIComponent(
+      participantId
+    )}`
+  );
+
+  return handleResponse(
+    response,
+    'Failed to load mood check-ins.'
+  );
+};
+
+// --------------------------------------------------
+// WRITTEN ASSESSMENTS
+// --------------------------------------------------
+
+export async function submitAssessment(participantId, textInput) {
+  const response = await safeFetch(`${API_BASE_URL}/assessments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      participant_id: participantId,
+      text_input: textInput,
+    }),
+  });
+
+  return handleResponse(
+    response,
+    'Could not analyse your assessment. Please try again.'
+  );
+}
+
+export async function getAssessments(participantId) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/assessments?participant_id=${encodeURIComponent(
+      participantId
+    )}`
+  );
+
+  return handleResponse(response, 'Could not load your assessments.');
+}
+
+export async function updateAssessment(
+  participantId,
+  assessmentId,
+  textInput
+) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/assessments/${encodeURIComponent(assessmentId)}`,
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participant_id: participantId,
+        text_input: textInput,
+      }),
+    }
+  );
+
+  return handleResponse(response, 'Could not update your assessment.');
+}
+
+export async function deleteAssessment(participantId, assessmentId) {
+  const response = await safeFetch(
+    `${API_BASE_URL}/assessments/${encodeURIComponent(
+      assessmentId
+    )}?participant_id=${encodeURIComponent(participantId)}`,
+    { method: 'DELETE' }
+  );
+
+  return handleResponse(response, 'Could not delete your assessment.');
+}
+
+// --------------------------------------------------
+// FORGOT PASSWORD
+// --------------------------------------------------
+
+export async function requestPasswordReset(email) {
+  const response = await safeFetch(`${API_BASE_URL}/forgot-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: email.trim() }),
+  });
+
+  return handleResponse(
+    response,
+    'Could not send the reset email. Please try again.'
   );
 }

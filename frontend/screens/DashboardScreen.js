@@ -1,5 +1,4 @@
-import React from 'react';
-
+import React, { useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -7,389 +6,1201 @@ import {
   TouchableOpacity,
   ScrollView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  getMoodCheckins,
+  getSavedWellnessRecommendations,
+  generateWellnessAnalysis,
+} from '../services/api';
+import { getQuoteOfTheDay } from '../utils/quoteUtils';
 
-export default function DashboardScreen({ navigation }) {
+const MOOD_OPTIONS = [
+  {
+    label: 'Awful',
+    value: 'awful',
+    emoji: '😞',
+    color: '#F4D9D9',
+  },
+  {
+    label: 'Not Great',
+    value: 'not great',
+    emoji: '😕',
+    color: '#F3E1D0',
+  },
+  {
+    label: 'Okay',
+    value: 'okay',
+    emoji: '😐',
+    color: '#F3EBCB',
+  },
+  {
+    label: 'Good',
+    value: 'good',
+    emoji: '🙂',
+    color: '#DCEBD9',
+  },
+  {
+    label: 'Amazing',
+    value: 'amazing',
+    emoji: '😄',
+    color: '#CDE6D8',
+  },
+];
+
+const ACTIVITY_ROUTES = {
+  breathing: 'BreathingExercise',
+  focus_timer: 'FocusTimer',
+  gratitude_journal: 'GratitudeJournal',
+  sleep: 'SleepBetter',
+  talk_to_someone: 'AIChat',
+  movement: 'MoveBody',
+};
+
+const ACTIVITY_CONFIG = {
+  breathing: {
+    icon: 'leaf-outline',
+    iconColor: '#466B58',
+    backgroundColor: '#E1EDE2',
+  },
+  focus_timer: {
+    icon: 'timer-outline',
+    iconColor: '#79688F',
+    backgroundColor: '#E7E1F0',
+  },
+  gratitude_journal: {
+    icon: 'book-outline',
+    iconColor: '#466B58',
+    backgroundColor: '#E1EDE2',
+  },
+  sleep: {
+    icon: 'moon-outline',
+    iconColor: '#587A9B',
+    backgroundColor: '#DDE8F3',
+  },
+  talk_to_someone: {
+    icon: 'chatbubble-ellipses-outline',
+    iconColor: '#79688F',
+    backgroundColor: '#E7E1F0',
+  },
+  movement: {
+    icon: 'walk-outline',
+    iconColor: '#A56A3A',
+    backgroundColor: '#F5E6D6',
+  },
+};
+
+function getGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) return 'Good morning';
+  if (hour < 17) return 'Good afternoon';
+
+  return 'Good evening';
+}
+
+function getCheckinsFromResponse(response) {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response?.checkins)) return response.checkins;
+  if (Array.isArray(response?.mood_checkins)) return response.mood_checkins;
+  if (Array.isArray(response?.data)) return response.data;
+
+  return null;
+}
+
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+
+  return `${year}-${month}-${day}`;
+}
+
+function getCheckinDateString(checkin) {
+  if (
+    typeof checkin?.checkin_date === 'string' &&
+    checkin.checkin_date.trim() !== ''
+  ) {
+    return checkin.checkin_date.slice(0, 10);
+  }
+
+  const value = checkin?.created_at || checkin?.date;
+
+  if (!value) return '';
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) return '';
+
+  return getLocalDateString(date);
+}
+
+function getCheckinTimestamp(checkin) {
+  const value =
+    checkin?.checkin_date ||
+    checkin?.created_at ||
+    checkin?.date;
+
+  if (!value) return 0;
+
+  const timestamp = new Date(value).getTime();
+
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function getCheckinFeelings(value) {
+  if (Array.isArray(value)) return value;
+
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function getCheckinStreak(checkins, today = new Date()) {
+  const checkinDates = new Set(
+    checkins
+      .map((checkin) => getCheckinDateString(checkin))
+      .filter((date) => /^\d{4}-\d{2}-\d{2}$/.test(date))
+  );
+
+  const todayString = getLocalDateString(today);
+
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+
+  const yesterdayString = getLocalDateString(yesterday);
+
+  let currentDate;
+
+  if (checkinDates.has(todayString)) {
+    currentDate = todayString;
+  } else if (checkinDates.has(yesterdayString)) {
+    currentDate = yesterdayString;
+  } else {
+    return 0;
+  }
+
+  let streak = 0;
+
+  while (checkinDates.has(currentDate)) {
+    streak++;
+
+    const [year, month, day] = currentDate
+      .split('-')
+      .map(Number);
+
+    const previousDate = new Date(
+      Date.UTC(year, month - 1, day - 1)
+    );
+
+    currentDate = [
+      previousDate.getUTCFullYear(),
+      String(previousDate.getUTCMonth() + 1).padStart(2, '0'),
+      String(previousDate.getUTCDate()).padStart(2, '0'),
+    ].join('-');
+  }
+
+  return streak;
+}
+
+function getActivityKey(recommendation) {
+  return String(recommendation?.activity || '')
+    .trim()
+    .toLowerCase();
+}
+
+function getPersonalisedActivities(response) {
+  const recommendations =
+    response?.analysis?.recommendations ||
+    response?.recommendations ||
+    response?.data?.analysis?.recommendations ||
+    [];
+
+  if (!Array.isArray(recommendations)) {
+    return [];
+  }
+
+  const seenActivities = new Set();
+
+  // Keep usable, non-duplicate activities that have a screen to open.
+  const validRecommendations = recommendations.filter(
+    (recommendation) => {
+      const activity = getActivityKey(recommendation);
+
+      if (
+        !activity ||
+        activity === 'none' ||
+        !ACTIVITY_ROUTES[activity] ||
+        seenActivities.has(activity)
+      ) {
+        return false;
+      }
+
+      seenActivities.add(activity);
+      return true;
+    }
+  );
+
+  // The Gratitude Journal already has its own card further down the
+  // Dashboard, so it is listed last and only fills a free slot. This
+  // way the AI's other suggestions always come first, but the list
+  // still shows two activities when the journal is one of them.
+  const otherActivities = validRecommendations.filter(
+    (recommendation) =>
+      getActivityKey(recommendation) !== 'gratitude_journal'
+  );
+
+  const journalActivities = validRecommendations.filter(
+    (recommendation) =>
+      getActivityKey(recommendation) === 'gratitude_journal'
+  );
+
+  return [...otherActivities, ...journalActivities].slice(0, 2);
+}
+
+export default function DashboardScreen({ navigation, route }) {
+  const insets = useSafeAreaInsets();
+
+  const user = route?.params?.user || {};
+
+  const studentName =
+    user.display_name ||
+    user.name ||
+    user.full_name ||
+    user.username ||
+    'Student';
+
+  const accountKey =
+    user.participant_id ||
+    user.email ||
+    'guest';
+
+  const [quoteResult, setQuoteResult] = useState(null);
+  const [hasCheckins, setHasCheckins] = useState(false);
+  const [quoteLoading, setQuoteLoading] = useState(true);
+  const [quoteError, setQuoteError] = useState('');
+
+  const [hasCheckedInToday, setHasCheckedInToday] = useState(false);
+  const [checkinHistoryLoading, setCheckinHistoryLoading] = useState(true);
+  const [checkinHistoryError, setCheckinHistoryError] = useState('');
+
+  const [streakCount, setStreakCount] = useState(null);
+
+  // Personalised AI-recommended Dashboard activities.
+  const [personalisedActivities, setPersonalisedActivities] = useState([]);
+  const [activitiesLoading, setActivitiesLoading] = useState(true);
+  const [activitiesError, setActivitiesError] = useState('');
+  const [activityRetryCount, setActivityRetryCount] = useState(0);
+
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+
+      async function loadDashboard() {
+        setQuoteLoading(true);
+        setQuoteError('');
+
+        setCheckinHistoryLoading(true);
+        setCheckinHistoryError('');
+        setStreakCount(null);
+
+        setActivitiesLoading(true);
+        setActivitiesError('');
+        setPersonalisedActivities([]);
+
+        try {
+          const participantId = user.participant_id;
+
+          if (!participantId) {
+            if (isActive) {
+              setHasCheckins(false);
+              setHasCheckedInToday(false);
+              setStreakCount(null);
+
+              setCheckinHistoryError(
+                'We could not verify your check-in status. Please sign in again.'
+              );
+
+              setActivitiesError(
+                'Please sign in again to load your recommended activities.'
+              );
+            }
+
+            return;
+          }
+
+          // 1. Load check-ins FIRST.
+          // New users should not trigger AI analysis before their first check-in.
+          const response = await getMoodCheckins(participantId);
+          const checkins = getCheckinsFromResponse(response);
+
+          if (checkins === null) {
+            throw new Error(
+              'The check-in history returned an unexpected format.'
+            );
+          }
+
+          const validCheckins = checkins.filter(
+            (checkin) =>
+              checkin &&
+              typeof checkin.mood_value === 'string' &&
+              checkin.mood_value.trim() !== ''
+          );
+
+          const today = getLocalDateString();
+
+          const checkedInToday = validCheckins.some(
+            (checkin) => getCheckinDateString(checkin) === today
+          );
+
+          if (isActive) {
+            setHasCheckins(validCheckins.length > 0);
+            setHasCheckedInToday(checkedInToday);
+            setStreakCount(getCheckinStreak(validCheckins));
+          }
+
+          // 2. No check-ins: do not generate an AI analysis.
+          // Show the first-check-in prompt in the recommendations section.
+          if (validCheckins.length === 0) {
+            if (isActive) {
+              setQuoteResult(null);
+              setPersonalisedActivities([]);
+              setActivitiesError('');
+            }
+
+            return;
+          }
+
+          // 3. Load the quote based on the latest check-in.
+          const sortedCheckins = [...validCheckins].sort(
+            (first, second) =>
+              getCheckinTimestamp(second) -
+              getCheckinTimestamp(first)
+          );
+
+          const latestCheckin = sortedCheckins[0];
+
+          const feelings = getCheckinFeelings(
+            latestCheckin.feelings
+          );
+
+          const result = getQuoteOfTheDay({
+            mood: latestCheckin.mood_value,
+            feelings,
+            userId: participantId,
+          });
+
+          if (isActive) {
+            setQuoteResult(result);
+          }
+
+          // 4. Load recommendations already saved in the database.
+          // Avoid generating another analysis if recommendations exist.
+          try {
+            const savedResponse =
+              await getSavedWellnessRecommendations(participantId);
+
+            const savedActivities =
+              getPersonalisedActivities(savedResponse);
+
+            if (savedActivities.length > 0) {
+              if (isActive) {
+                setPersonalisedActivities(savedActivities);
+                setActivitiesError('');
+              }
+
+              return;
+            }
+
+            // 5. Check-ins exist, but there are no saved recommendations.
+            // Generate an analysis only when necessary.
+            const analysisResponse =
+              await generateWellnessAnalysis(participantId);
+
+            const generatedActivities =
+              getPersonalisedActivities(analysisResponse);
+
+            if (isActive) {
+              setPersonalisedActivities(generatedActivities);
+
+              if (generatedActivities.length > 0) {
+                setActivitiesError('');
+              } else {
+                setActivitiesError(
+                  'We could not prepare your recommendations just yet. Please try again.'
+                );
+              }
+            }
+          } catch (error) {
+  console.log(
+    'Could not load personalised dashboard activities:',
+    error?.message || error
+  );
+
+  if (isActive) {
+    setPersonalisedActivities([]);
+
+    setActivitiesError(
+      error?.message ===
+        'Could not reach the server, check your internet connection.'
+        ? 'Could not reach the server. Please check your internet connection and try again.'
+        : 'Your recommended activities are temporarily unavailable. Please try again.'
+    );
+  }
+}
+        } catch (error) {
+  console.log(
+    'Could not load dashboard check-in history:',
+    error?.message || error
+  );
+
+  if (isActive) {
+    const serverUnavailable =
+      error?.message ===
+      'Could not reach the server, check your internet connection.';
+
+    setQuoteResult(null);
+
+    setQuoteError(
+      serverUnavailable
+        ? 'Could not load your quote because the server is unavailable. Please check your internet connection and try again.'
+        : 'Your quote could not be loaded right now. Please try again later.'
+    );
+
+    setCheckinHistoryError(
+      serverUnavailable
+        ? 'Could not reach the server. Please check your internet connection and try again.'
+        : 'We could not verify your check-in status. Please try again.'
+    );
+
+    setStreakCount(null);
+
+    setActivitiesError(
+      serverUnavailable
+        ? 'Could not reach the server. Please check your internet connection and try again.'
+        : 'We could not check your wellness history. Please try again.'
+    );
+  }
+} finally {
+          if (isActive) {
+            setQuoteLoading(false);
+            setCheckinHistoryLoading(false);
+            setActivitiesLoading(false);
+          }
+        }
+      }
+
+      loadDashboard();
+
+      return () => {
+        isActive = false;
+      };
+    }, [
+      accountKey,
+      user.participant_id,
+      activityRetryCount,
+    ])
+  );
+
+  function retryRecommendedActivities() {
+    setActivitiesError('');
+    setActivitiesLoading(true);
+    setActivityRetryCount((count) => count + 1);
+  }
+
+  function openMoodCheckIn(mood) {
+    if (
+      checkinHistoryLoading ||
+      checkinHistoryError ||
+      hasCheckedInToday
+    ) {
+      return;
+    }
+
+    navigation.navigate('Check-in', {
+      user,
+      selectedMood: mood.label,
+      moodLabel: mood.label,
+      moodEmoji: mood.emoji,
+    });
+  }
+
+  function openGeneralMoodCheckIn() {
+    if (
+      checkinHistoryLoading ||
+      checkinHistoryError ||
+      hasCheckedInToday
+    ) {
+      return;
+    }
+
+    navigation.navigate('Check-in', { user });
+  }
+
+  function openNotifications() {
+    navigation.navigate('Notifications', { user });
+  }
+
+  function openGuidance() {
+    navigation.navigate('Guidance', { user });
+  }
+
+  function openGratitudeJournal() {
+    navigation.navigate('GratitudeJournal', { user });
+  }
+
+  function openWrittenAssessment() {
+    navigation.navigate('WrittenAssessment', { user });
+  }
+
+  function openRecommendedActivity(activity) {
+    const activityKey = String(activity || '')
+      .trim()
+      .toLowerCase();
+
+    const routeName = ACTIVITY_ROUTES[activityKey];
+
+    if (!routeName) return;
+
+    navigation.navigate(routeName, { user });
+  }
+
+  function renderQuoteContent() {
+    if (quoteLoading) {
+      return (
+        <View style={styles.quoteStatusContainer}>
+          <Text style={styles.quoteStatus}>
+            Finding a quote for you...
+          </Text>
+        </View>
+      );
+    }
+
+    if (quoteError) {
+      return (
+        <View style={styles.quoteStatusContainer}>
+          <Ionicons
+            name="cloud-offline-outline"
+            size={24}
+            color="#7B8583"
+          />
+          <Text style={styles.quoteStatus}>
+            {quoteError}
+          </Text>
+        </View>
+      );
+    }
+
+    if (hasCheckins && quoteResult?.quote) {
+      return (
+        <View style={styles.quoteContent}>
+          <Text style={styles.quoteText}>
+            "{quoteResult.quote.text}"
+          </Text>
+
+          {!!quoteResult.quote.author && (
+            <Text style={styles.quoteAuthor}>
+              — {quoteResult.quote.author}
+            </Text>
+          )}
+        </View>
+      );
+    }
+
+    if (hasCheckins) {
+      return (
+        <View style={styles.quoteStatusContainer}>
+          <Text style={styles.quoteStatus}>
+            Your quote is not available right now.
+          </Text>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.newStudentQuoteContent}>
+        <Text style={styles.quoteStatus}>
+          Complete your first Mood Check-In to receive
+          a quote based on how you're feeling.
+        </Text>
+
+        <TouchableOpacity
+          style={[
+            styles.checkInQuoteButton,
+            (
+              checkinHistoryLoading ||
+              checkinHistoryError ||
+              hasCheckedInToday
+            ) && styles.disabledButton,
+          ]}
+          onPress={openGeneralMoodCheckIn}
+          disabled={
+            checkinHistoryLoading ||
+            !!checkinHistoryError ||
+            hasCheckedInToday
+          }
+          activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityLabel="Complete your first mood check-in"
+        >
+          <Text style={styles.checkInQuoteButtonText}>
+            Check in now
+          </Text>
+
+          <Ionicons
+            name="arrow-forward"
+            size={17}
+            color="#FFFFFF"
+          />
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const checkinControlsDisabled =
+    checkinHistoryLoading ||
+    !!checkinHistoryError ||
+    hasCheckedInToday;
 
   return (
     <View style={styles.container}>
+      <View
+        pointerEvents="none"
+        style={styles.backgroundBlob}
+      />
 
-      {/* Background decoration */}
-      <View style={styles.backgroundBlob} />
-
+      <View
+        pointerEvents="none"
+        style={[
+          styles.backgroundLeaf,
+          { top: insets.top + 45 },
+        ]}
+      >
+        <Text style={styles.backgroundLeafEmoji}>🌿</Text>
+      </View>
 
       <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + 12 },
+        ]}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
       >
-
         {/* Header */}
         <View style={styles.header}>
-
           <View style={styles.headerLeft}>
+            <Text style={styles.leafIcon}>🍃</Text>
 
-            <Text style={styles.leafIcon}>
-              🍃
-            </Text>
-
-            <Text style={styles.headerTitle}>
-              Dashboard
-            </Text>
-
+            <View>
+              <Text style={styles.headerTitle}>
+                Dashboard
+              </Text>
+              <Text style={styles.headerSubtitle}>
+                Your personal wellbeing space
+              </Text>
+            </View>
           </View>
 
-          {/* Temporary bell placeholder */}
-          <Text style={styles.bellIcon}>
-            ♡
-          </Text>
-
+          <TouchableOpacity
+            style={styles.notificationButton}
+            onPress={openNotifications}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Open notifications"
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={23}
+              color="#252B29"
+            />
+          </TouchableOpacity>
         </View>
 
-
-        {/* Greeting + Daily Streak */}
-        <View style={styles.greetingSection}>
-
-          <View style={styles.greetingText}>
-
+        {/* Greeting and Daily Streak */}
+        <View style={styles.greetingStreakRow}>
+          <View style={styles.greetingSection}>
             <Text style={styles.greeting}>
-              Good morning,
+              {getGreeting()},
             </Text>
 
-            <Text style={styles.student}>
-              Student
+            <Text
+              style={styles.studentName}
+              numberOfLines={1}
+              adjustsFontSizeToFit
+            >
+              {studentName}
             </Text>
 
-            <Text style={styles.subtitle}>
+            <Text style={styles.greetingMessage}>
               Small steps today. Big dreams tomorrow.
             </Text>
-
           </View>
 
-
-          {/* Daily Streak */}
           <View style={styles.streakCard}>
+            <Text style={styles.streakFlame}>🔥</Text>
 
-            <Text style={styles.streakTitle}>
-              Daily Streak
-            </Text>
-
-            <View style={styles.streakContent}>
-
-              <Text style={styles.flame}>
-                🔥
+            <View style={styles.streakTextContainer}>
+              <Text style={styles.streakTitle}>
+                Daily Streak
               </Text>
 
+              <Text
+                style={styles.streakCount}
+                accessibilityLabel={
+                  streakCount === null
+                    ? 'Streak unavailable'
+                    : `${streakCount} day streak`
+                }
+              >
+                {streakCount === null ? '—' : streakCount}
+              </Text>
+
+              <Text style={styles.streakDays}>Days</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Mood Check-In */}
+        <View style={styles.section}>
+          <View style={styles.moodCheckInCard}>
+            <View style={styles.sectionHeader}>
               <View>
-
-                <Text style={styles.streakNumber}>
-                  7
+                <Text style={styles.sectionTitle}>
+                  Mood Check-In
                 </Text>
 
-                <Text style={styles.days}>
-                  Days
+                <Text style={styles.sectionSubtitle}>
+                  How are you feeling today?
                 </Text>
-
               </View>
-
             </View>
 
-          </View>
+            <View style={styles.moodOptions}>
+              {MOOD_OPTIONS.map((mood) => (
+                <TouchableOpacity
+                  key={mood.value}
+                  style={[
+                    styles.moodOption,
+                    checkinControlsDisabled &&
+                      styles.disabledMoodOption,
+                  ]}
+                  onPress={() => openMoodCheckIn(mood)}
+                  disabled={checkinControlsDisabled}
+                  activeOpacity={0.75}
+                  accessibilityRole="button"
+                  accessibilityState={{
+                    disabled: checkinControlsDisabled,
+                  }}
+                  accessibilityLabel={`Feeling ${mood.label}`}
+                >
+                  <View
+                    style={[
+                      styles.moodEmojiContainer,
+                      { backgroundColor: mood.color },
+                    ]}
+                  >
+                    <Text style={styles.moodEmoji}>
+                      {mood.emoji}
+                    </Text>
+                  </View>
 
+                  <Text style={styles.moodLabel}>
+                    {mood.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {checkinHistoryLoading ? (
+              <View style={styles.checkinStatusContainer}>
+                <Text style={styles.checkinStatusText}>
+                  Checking today's check-in...
+                </Text>
+              </View>
+            ) : checkinHistoryError ? (
+              <View style={styles.checkinErrorContainer}>
+                <Ionicons
+                  name="cloud-offline-outline"
+                  size={20}
+                  color="#986B43"
+                />
+
+                <Text style={styles.checkinErrorText}>
+                  {checkinHistoryError}
+                </Text>
+              </View>
+            ) : hasCheckedInToday ? (
+              <View style={styles.checkinCompletedContainer}>
+                <Ionicons
+                  name="checkmark-circle"
+                  size={22}
+                  color="#466B58"
+                />
+
+                <View style={styles.checkinCompletedTextContainer}>
+                  <Text style={styles.checkinCompletedTitle}>
+                    You've checked in today!
+                  </Text>
+
+                  <Text style={styles.checkinCompletedMessage}>
+                    Your next check-in will be available tomorrow.
+                  </Text>
+                </View>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={[
+                styles.fullCheckInButton,
+                checkinControlsDisabled &&
+                  styles.disabledButton,
+              ]}
+              onPress={openGeneralMoodCheckIn}
+              disabled={checkinControlsDisabled}
+              activeOpacity={0.8}
+              accessibilityRole="button"
+              accessibilityState={{
+                disabled: checkinControlsDisabled,
+              }}
+              accessibilityLabel={
+                hasCheckedInToday
+                  ? "You've checked in today"
+                  : 'Open mood check-in'
+              }
+            >
+              <Text style={styles.fullCheckInButtonText}>
+                {checkinHistoryLoading
+                  ? 'Checking status...'
+                  : checkinHistoryError
+                    ? 'Check-in unavailable'
+                    : hasCheckedInToday
+                      ? "You've checked in today"
+                      : 'Open Mood Check-In'}
+              </Text>
+
+              {!checkinControlsDisabled && (
+                <Ionicons
+                  name="arrow-forward"
+                  size={17}
+                  color="#FFFFFF"
+                />
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
 
+        {/* Quote of the Day */}
+        <View style={styles.quoteCard}>
+          <View style={styles.quoteHeader}>
+            <View style={styles.quoteIconContainer}>
+              <Ionicons
+                name="sunny-outline"
+                size={23}
+                color="#7FA88A"
+              />
+            </View>
 
-        {/* Mood Check-in Card */}
-        <View style={styles.moodCard}>
+            <View style={styles.quoteHeadingText}>
+              <Text style={styles.quoteTitle}>
+                Quote of the Day
+              </Text>
 
-          <View style={styles.moodTitleRow}>
-
-            <Text style={styles.heartIcon}>
-              ♥
-            </Text>
-
-            <Text style={styles.moodTitle}>
-              How are you feeling right now?
-            </Text>
-
+              <Text style={styles.quoteSubtitle}>
+                A little reminder for you
+              </Text>
+            </View>
           </View>
 
-
-          <Text style={styles.moodDescription}>
-            Your mood matters. Check in with yourself.
-          </Text>
-
-
-          {/* Mood Options */}
-          <View style={styles.moodOptions}>
-
-            <View style={styles.moodOption}>
-              <View style={[styles.emojiCircle, styles.awful]}>
-                <Text style={styles.emoji}>
-                  😞
-                </Text>
-              </View>
-
-              <Text style={styles.moodLabel}>
-                Awful
-              </Text>
-            </View>
-
-
-            <View style={styles.moodOption}>
-              <View style={[styles.emojiCircle, styles.notGreat]}>
-                <Text style={styles.emoji}>
-                  😕
-                </Text>
-              </View>
-
-              <Text style={styles.moodLabel}>
-                Not Great
-              </Text>
-            </View>
-
-
-            <View style={styles.moodOption}>
-              <View style={[styles.emojiCircle, styles.okay]}>
-                <Text style={styles.emoji}>
-                  😐
-                </Text>
-              </View>
-
-              <Text style={styles.moodLabel}>
-                Okay
-              </Text>
-            </View>
-
-
-            <View style={styles.moodOption}>
-              <View style={[styles.emojiCircle, styles.good]}>
-                <Text style={styles.emoji}>
-                  🙂
-                </Text>
-              </View>
-
-              <Text style={styles.moodLabel}>
-                Good
-              </Text>
-            </View>
-
-
-            <View style={styles.moodOption}>
-              <View style={[styles.emojiCircle, styles.amazing]}>
-                <Text style={styles.emoji}>
-                  😄
-                </Text>
-              </View>
-
-              <Text style={styles.moodLabel}>
-                Amazing
-              </Text>
-            </View>
-
-          </View>
-
-
-          {/* Mood Check-in Button */}
-          <TouchableOpacity style={styles.moodButton}>
-
-            <Text style={styles.moodButtonText}>
-              Mood Check-In
-            </Text>
-
-          </TouchableOpacity>
-
+          {renderQuoteContent()}
         </View>
 
+        {/* Personalised Recommended Activities */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>
+                Recommended for You
+              </Text>
 
-        {/* Personalised Guidance Card */}
-        <View style={styles.guidanceCard}>
-
-          <View style={styles.guidanceTitleRow}>
-
-            <Text style={styles.sparkleIcon}>
-              ✦
-            </Text>
-
-            <Text style={styles.guidanceTitle}>
-              Personalised Guidance
-            </Text>
-
+              <Text style={styles.sectionSubtitle}>
+                Small steps can make a difference.
+              </Text>
+            </View>
           </View>
 
+          {activitiesLoading ? (
+            <View style={styles.activityCard}>
+              <View style={styles.activityTextContainer}>
+                <Text style={styles.activityTitle}>
+                  Finding your recommendations...
+                </Text>
 
-          <Text style={styles.guidanceDescription}>
-            Tailored support for where you are.
-          </Text>
+                <Text style={styles.activityDescription}>
+                  Checking your saved recommendations first.
+                </Text>
+              </View>
+            </View>
+          ) : personalisedActivities.length > 0 ? (
+            personalisedActivities.map((recommendation, index) => {
+              const activityKey = String(
+                recommendation.activity || ''
+              )
+                .trim()
+                .toLowerCase();
 
+              const config = ACTIVITY_CONFIG[activityKey];
 
-          <View style={styles.divider} />
+              return (
+                <TouchableOpacity
+                  key={`${activityKey}-${index}`}
+                  style={styles.activityCard}
+                  onPress={() =>
+                    openRecommendedActivity(activityKey)
+                  }
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Open personalised activity: ${
+                    recommendation.title ||
+                    activityKey.replace(/_/g, ' ')
+                  }`}
+                >
+                  <View
+                    style={[
+                      styles.activityIcon,
+                      {
+                        backgroundColor: config.backgroundColor,
+                      },
+                    ]}
+                  >
+                    <Ionicons
+                      name={config.icon}
+                      size={24}
+                      color={config.iconColor}
+                    />
+                  </View>
 
+                  <View style={styles.activityTextContainer}>
+                    <Text style={styles.activityTitle}>
+                      {recommendation.title ||
+                        activityKey.replace(/_/g, ' ')}
+                    </Text>
 
-          {/* Guidance Quote */}
-          <View style={styles.quoteRow}>
+                    <Text style={styles.activityDescription}>
+                      {recommendation.message ||
+                        'Take a moment to focus on your wellbeing.'}
+                    </Text>
+                  </View>
 
-            <Text style={styles.quoteIcon}>
-              “
-            </Text>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={20}
+                    color="#87918C"
+                  />
+                </TouchableOpacity>
+              );
+            })
+          ) : checkinHistoryError ? (
+            <View style={styles.activityCard}>
+              <View style={styles.activityTextContainer}>
+                <Text style={styles.activityTitle}>
+                  Recommendations temporarily unavailable
+                </Text>
 
-            <Text style={styles.quoteText}>
-              It's okay to feel overwhelmed. You're not alone, and every small step counts.
-            </Text>
+                <Text style={styles.activityDescription}>
+                  We need to verify your check-in history before
+                  we can load personalised activities.
+                </Text>
 
-            <Text style={styles.chevron}>
-              ›
-            </Text>
+                <TouchableOpacity
+                  style={styles.activityRetryButton}
+                  onPress={retryRecommendedActivities}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry loading recommended activities"
+                >
+                  <Text style={styles.activityRetryButtonText}>
+                    Try again
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : !hasCheckins ? (
+            <View style={styles.activityCard}>
+              <View style={styles.activityTextContainer}>
+                <Text style={styles.activityTitle}>
+                  Let's personalise your wellness journey
+                </Text>
 
-          </View>
+                <Text style={styles.activityDescription}>
+                  Complete your first mood check-in so we can
+                  recommend activities that better match how
+                  you're feeling.
+                </Text>
 
+                <TouchableOpacity
+                  style={styles.activityRetryButton}
+                  onPress={openGeneralMoodCheckIn}
+                  disabled={checkinControlsDisabled}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Complete your first mood check-in"
+                >
+                  <Text style={styles.activityRetryButtonText}>
+                    Complete mood check-in
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : (
+            <View style={styles.activityCard}>
+              <View style={styles.activityTextContainer}>
+                <Text style={styles.activityTitle}>
+                  Your recommendations aren't ready yet
+                </Text>
 
-          <View style={styles.divider} />
+                <Text style={styles.activityDescription}>
+                  We couldn't prepare your personalised activities
+                  right now. You can try again.
+                </Text>
 
-        </View>
+                <TouchableOpacity
+                  style={styles.activityRetryButton}
+                  onPress={retryRecommendedActivities}
+                  activeOpacity={0.8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Retry generating recommended activities"
+                >
+                  <Text style={styles.activityRetryButtonText}>
+                    Try again
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
 
-
-        {/* Guidance Links */}
-        <View style={styles.guidanceLinks}>
-
-          <TouchableOpacity>
-
-            <Text style={styles.seeGuidance}>
-              See my guidance
-            </Text>
-
-          </TouchableOpacity>
-
-
-          <TouchableOpacity>
-
-            <Text style={styles.viewAll}>
-              View all
-            </Text>
-
-          </TouchableOpacity>
-
-        </View>
-
-
-        {/* Recommended for You */}
-        <View style={styles.recommendedSection}>
-
-          <Text style={styles.recommendedTitle}>
-            Recommended for You
-          </Text>
-
-
-          {/* Breathing Exercise */}
+          {/* View all guidance link */}
           <TouchableOpacity
-  style={styles.recommendationCard}
-  onPress={() => navigation.navigate('BreathingExercise')}
->
-
-            <View style={[styles.recommendationIcon, styles.breathingIcon]}>
-              <Text style={styles.iconText}>
-                📖
-              </Text>
-            </View>
-
-            <View style={styles.recommendationText}>
-
-              <Text style={styles.recommendationTitle}>
-                Breathing Exercise
-              </Text>
-
-              <Text style={styles.recommendationDescription}>
-                3 min • Carry your mind
-              </Text>
-
-            </View>
-
-            <Text style={styles.recommendationChevron}>
-              ›
-            </Text>
-
-          </TouchableOpacity>
-
-
-          {/* Focus Timer */}
-
-          <TouchableOpacity
-           style={styles.recommendationCard}
-          onPress={() => navigation.navigate('FocusTimer')}
+            style={styles.guidanceLink}
+            onPress={openGuidance}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="View all guidance"
           >
-            <View style={[styles.recommendationIcon, styles.focusIcon]}>
-              <Text style={styles.iconText}>
-                🎓
-              </Text>
-            </View>
-
-            <View style={styles.recommendationText}>
-
-              <Text style={styles.recommendationTitle}>
-                Focus Timer
-              </Text>
-
-              <Text style={styles.recommendationDescription}>
-                20 min • Stay productive
-              </Text>
-
-            </View>
-
-            <Text style={styles.recommendationChevron}>
-              ›
+            <Text style={styles.guidanceLinkText}>
+              View all guidance
             </Text>
 
+            <Ionicons
+              name="arrow-forward"
+              size={16}
+              color="#466B58"
+            />
           </TouchableOpacity>
+        </View>
 
+        {/* Journal */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>
+                Reflect & Write
+              </Text>
 
-          {/* Gratitude Journal */}
-          <TouchableOpacity
-          style={styles.recommendationCard}
-          onPress={() => navigation.navigate('GratitudeJournal')}
-        >
-
-            <View style={[styles.recommendationIcon, styles.gratitudeIcon]}>
-              <Text style={styles.iconText}>
-                🪷
+              <Text style={styles.sectionSubtitle}>
+                Reflect on the things that matter to you.
               </Text>
             </View>
+          </View>
 
-            <View style={styles.recommendationText}>
+          <TouchableOpacity
+            style={styles.journalCard}
+            onPress={openGratitudeJournal}
+            activeOpacity={0.8}
+          >
+            <View style={styles.journalIconContainer}>
+              <Ionicons
+                name="book-outline"
+                size={25}
+                color="#466B58"
+              />
+            </View>
 
-              <Text style={styles.recommendationTitle}>
+            <View style={styles.activityTextContainer}>
+              <Text style={styles.activityTitle}>
                 Gratitude Journal
               </Text>
 
-              <Text style={styles.recommendationDescription}>
-                5 min • Shift perspective
+              <Text style={styles.activityDescription}>
+                Write down something you appreciate today.
               </Text>
-
             </View>
 
-            <Text style={styles.recommendationChevron}>
-              ›
-            </Text>
-
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color="#87918C"
+            />
           </TouchableOpacity>
 
+          <TouchableOpacity
+            style={[styles.journalCard, styles.assessmentCard]}
+            onPress={openWrittenAssessment}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Open written assessment"
+          >
+            <View style={styles.journalIconContainer}>
+              <Ionicons
+                name="create-outline"
+                size={25}
+                color="#466B58"
+              />
+            </View>
+
+            <View style={styles.activityTextContainer}>
+              <Text style={styles.activityTitle}>
+                Written Assessment
+              </Text>
+
+              <Text style={styles.activityDescription}>
+                Describe how you feel in your own words and get guidance.
+              </Text>
+            </View>
+
+            <Ionicons
+              name="chevron-forward"
+              size={20}
+              color="#87918C"
+            />
+          </TouchableOpacity>
         </View>
 
-
+        <Text style={styles.footerText}>
+          Remember to be kind to yourself. Every small step counts.
+        </Text>
       </ScrollView>
-
     </View>
   );
 }
 
-
 const styles = StyleSheet.create({
-
   container: {
     flex: 1,
-    backgroundColor: '#F8F8F3',
+    backgroundColor: '#F4EFE8',
   },
 
   scrollContent: {
-    paddingBottom: 40,
+    paddingHorizontal: 22,
+    paddingBottom: 35,
   },
 
   backgroundBlob: {
@@ -398,364 +1209,490 @@ const styles = StyleSheet.create({
     right: -80,
     width: 300,
     height: 180,
-    backgroundColor: '#C8DCC9',
-    borderBottomLeftRadius: 180,
-    borderBottomRightRadius: 80,
-    borderTopLeftRadius: 120,
+    backgroundColor: '#D5E2D2',
+    borderTopLeftRadius: 180,
+    borderTopRightRadius: 80,
+    borderBottomLeftRadius: 120,
+    borderBottomRightRadius: 120,
+  },
+
+  backgroundLeaf: {
+    position: 'absolute',
+    right: -25,
+    opacity: 0.12,
+    zIndex: 0,
+  },
+
+  backgroundLeafEmoji: {
+    fontSize: 100,
+    color: '#718D73',
+    transform: [{ rotate: '-25deg' }],
   },
 
   header: {
-    marginTop: 50,
-    marginHorizontal: 20,
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 22,
+    zIndex: 1,
   },
 
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
   },
 
   leafIcon: {
-    fontSize: 22,
+    fontSize: 25,
     marginRight: 7,
   },
 
   headerTitle: {
-    fontSize: 21,
+    fontSize: 24,
     fontWeight: '700',
-    color: '#234F4A',
+    color: '#3F4B49',
   },
 
-  bellIcon: {
-    fontSize: 25,
-    color: '#234F4A',
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#7B8583',
+    marginTop: 4,
+  },
+
+  notificationButton: {
+    width: 38,
+    height: 42,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 0,
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+  },
+
+  greetingStreakRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 0,
+    marginBottom: 26,
+    zIndex: 1,
   },
 
   greetingSection: {
-    marginTop: 35,
-    marginHorizontal: 20,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-
-  greetingText: {
     flex: 1,
+    minWidth: 0,
+    marginRight: 8,
   },
 
   greeting: {
     fontSize: 27,
+    lineHeight: 35,
     fontWeight: '700',
-    color: '#7FA88A',
+    color: '#6B8F78',
   },
 
-  student: {
+  studentName: {
     fontSize: 27,
+    lineHeight: 35,
     fontWeight: '700',
-    color: '#7FA88A',
+    color: '#6B8F78',
   },
 
-  subtitle: {
-    marginTop: 5,
-    fontSize: 13,
-    color: '#8B9B8F',
+  greetingMessage: {
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#829B87',
+    marginTop: 7,
   },
 
   streakCard: {
-    width: 115,
-    height: 105,
-    marginLeft: 10,
-    backgroundColor: '#DCEBDD',
+    width: '30%',
+    minHeight: 72,
     borderRadius: 18,
-    paddingTop: 12,
-    paddingHorizontal: 10,
-  },
-
-  streakTitle: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#355A4D',
-    textAlign: 'center',
-  },
-
-  streakContent: {
+    backgroundColor: 'rgba(196, 216, 198, 0.72)',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 8,
+    paddingHorizontal: 6,
   },
 
-  flame: {
-    fontSize: 27,
-    marginRight: 7,
+  streakFlame: {
+    fontSize: 22,
+    marginRight: 5,
   },
 
-  streakNumber: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#234F4A',
-    lineHeight: 30,
+  streakTextContainer: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
   },
 
-  days: {
-    fontSize: 11,
-    color: '#567166',
-    textAlign: 'center',
+  streakTitle: {
+    fontSize: 9,
+    fontWeight: '400',
+    color: '#3F4B49',
+    marginBottom: -2,
   },
 
-  moodCard: {
-    marginTop: 25,
-    marginHorizontal: 20,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 18,
-    elevation: 2,
-  },
-
-  moodTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  heartIcon: {
-    fontSize: 18,
-    color: '#234F4A',
-    marginRight: 8,
-  },
-
-  moodTitle: {
-    flex: 1,
-    fontSize: 16,
+  streakCount: {
+    fontSize: 26,
+    lineHeight: 29,
     fontWeight: '700',
-    color: '#263B36',
+    color: '#3F4B49',
   },
 
-  moodDescription: {
+  streakDays: {
+    fontSize: 9,
+    color: '#3F4B49',
+    marginTop: -2,
+  },
+
+  section: {
+    marginBottom: 29,
+    zIndex: 1,
+  },
+
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 17,
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#304F4A',
+  },
+
+  sectionSubtitle: {
     fontSize: 12,
-    color: '#89928E',
-    marginTop: 5,
-    marginLeft: 26,
+    lineHeight: 18,
+    color: '#7B8583',
+    marginTop: 4,
+  },
+
+  moodCheckInCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 21,
+    padding: 19,
+    borderWidth: 1,
+    borderColor: '#ECEDE6',
   },
 
   moodOptions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 18,
+    marginBottom: 17,
   },
 
   moodOption: {
     alignItems: 'center',
-    width: 55,
+    flex: 1,
   },
 
-  emojiCircle: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    justifyContent: 'center',
+  disabledMoodOption: {
+    opacity: 0.8,
+  },
+
+  moodEmojiContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 17,
     alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
   },
 
-  emoji: {
-    fontSize: 22,
-  },
-
-  awful: {
-    backgroundColor: '#F4C7C7',
-  },
-
-  notGreat: {
-    backgroundColor: '#F5D5B5',
-  },
-
-  okay: {
-    backgroundColor: '#F3E7A5',
-  },
-
-  good: {
-    backgroundColor: '#D5E8C9',
-  },
-
-  amazing: {
-    backgroundColor: '#B9DDB8',
+  moodEmoji: {
+    fontSize: 24,
   },
 
   moodLabel: {
-    fontSize: 9,
-    color: '#59645F',
-    marginTop: 5,
+    fontSize: 10,
+    color: '#52635D',
     textAlign: 'center',
   },
 
-  moodButton: {
-    marginTop: 18,
+  fullCheckInButton: {
     backgroundColor: '#304F4A',
     borderRadius: 12,
     paddingVertical: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
   },
 
-  moodButtonText: {
-    color: '#FFFFFF',
+  fullCheckInButtonText: {
     fontSize: 14,
     fontWeight: '700',
+    color: '#FFFFFF',
+    textAlign: 'center',
   },
 
-  guidanceCard: {
-    marginTop: 18,
-    marginHorizontal: 20,
-    backgroundColor: '#F7F2E8',
-    borderRadius: 20,
-    padding: 18,
+  disabledButton: {
+    opacity: 0.65,
   },
 
-  guidanceTitleRow: {
-    flexDirection: 'row',
+  checkinStatusContainer: {
+    backgroundColor: '#F7F8F2',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
     alignItems: 'center',
   },
 
-  sparkleIcon: {
-    fontSize: 20,
-    color: '#7FA88A',
-    marginRight: 8,
-  },
-
-  guidanceTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#7FA88A',
-  },
-
-  guidanceDescription: {
+  checkinStatusText: {
     fontSize: 12,
-    color: '#89928E',
-    marginTop: 5,
-    marginLeft: 28,
+    lineHeight: 18,
+    color: '#718078',
+    textAlign: 'center',
   },
 
-  divider: {
-    height: 1,
-    backgroundColor: '#DDD8CC',
-    marginVertical: 14,
-  },
-
-  quoteRow: {
+  checkinCompletedContainer: {
+    backgroundColor: '#F0F5EF',
+    borderRadius: 12,
+    padding: 13,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 10,
   },
 
-  quoteIcon: {
-    fontSize: 30,
-    color: '#7FA88A',
-    marginRight: 5,
-    alignSelf: 'flex-start',
-  },
-
-  quoteText: {
+  checkinCompletedTextContainer: {
     flex: 1,
+  },
+
+  checkinCompletedTitle: {
     fontSize: 13,
-    lineHeight: 19,
-    fontStyle: 'italic',
-    color: '#52665D',
-  },
-
-  chevron: {
-    fontSize: 27,
-    color: '#7FA88A',
-    marginLeft: 8,
-  },
-
-  guidanceLinks: {
-    marginHorizontal: 20,
-    marginTop: 12,
-    marginBottom: 5,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  seeGuidance: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6F947A',
-  },
-
-  viewAll: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#6F947A',
-    textDecorationLine: 'underline',
-  },
-
-  recommendedSection: {
-    marginTop: 24,
-    marginHorizontal: 20,
-  },
-
-  recommendedTitle: {
-    fontSize: 18,
     fontWeight: '700',
     color: '#304F4A',
-    marginBottom: 12,
   },
 
-  recommendationCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
+  checkinCompletedMessage: {
+    fontSize: 11,
+    lineHeight: 17,
+    color: '#718078',
+    marginTop: 4,
+  },
+
+  checkinErrorContainer: {
+    backgroundColor: '#FBF1E6',
+    borderRadius: 12,
     padding: 12,
-    marginBottom: 10,
+    marginBottom: 14,
     flexDirection: 'row',
     alignItems: 'center',
-    elevation: 1,
+    gap: 9,
   },
 
-  recommendationIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  checkinErrorText: {
+    flex: 1,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#805C3D',
+  },
+
+  quoteCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 21,
+    padding: 19,
+    marginBottom: 30,
+    borderWidth: 1,
+    borderColor: '#ECEDE6',
+  },
+
+  quoteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 17,
+  },
+
+  quoteIconContainer: {
+    width: 45,
+    height: 45,
+    borderRadius: 15,
+    backgroundColor: '#E8F0E6',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
   },
 
-  breathingIcon: {
-    backgroundColor: '#DCEAF2',
-  },
-
-  focusIcon: {
-    backgroundColor: '#E4E1F1',
-  },
-
-  gratitudeIcon: {
-    backgroundColor: '#E3EEDB',
-  },
-
-  iconText: {
-    fontSize: 23,
-  },
-
-  recommendationText: {
+  quoteHeadingText: {
     flex: 1,
   },
 
-  recommendationTitle: {
-    fontSize: 14,
+  quoteTitle: {
+    fontSize: 16,
     fontWeight: '700',
-    color: '#30433E',
+    color: '#304F4A',
   },
 
-  recommendationDescription: {
+  quoteSubtitle: {
     fontSize: 11,
-    color: '#89928E',
+    color: '#7B8583',
     marginTop: 4,
   },
 
-  recommendationChevron: {
-    fontSize: 26,
-    color: '#7FA88A',
-    marginLeft: 8,
+  quoteContent: {
+    backgroundColor: '#F7F8F2',
+    borderRadius: 15,
+    padding: 16,
   },
 
+  quoteText: {
+    fontSize: 15,
+    lineHeight: 24,
+    fontStyle: 'italic',
+    color: '#405B50',
+  },
+
+  quoteAuthor: {
+    fontSize: 12,
+    color: '#7B8583',
+    textAlign: 'right',
+    marginTop: 12,
+  },
+
+  quoteStatusContainer: {
+    backgroundColor: '#F7F8F2',
+    borderRadius: 15,
+    padding: 16,
+    alignItems: 'center',
+    gap: 9,
+  },
+
+  quoteStatus: {
+    fontSize: 12,
+    lineHeight: 19,
+    color: '#718078',
+  },
+
+  newStudentQuoteContent: {
+    backgroundColor: '#F7F8F2',
+    borderRadius: 15,
+    padding: 16,
+  },
+
+  checkInQuoteButton: {
+    backgroundColor: '#304F4A',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginTop: 15,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 9,
+    alignSelf: 'flex-start',
+  },
+
+  checkInQuoteButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  activityCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 17,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 11,
+    borderWidth: 1,
+    borderColor: '#ECEDE6',
+  },
+
+  activityIcon: {
+    width: 47,
+    height: 47,
+    borderRadius: 15,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 13,
+  },
+
+  activityTextContainer: {
+    flex: 1,
+    paddingRight: 8,
+  },
+
+  activityTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#304F4A',
+  },
+
+  activityDescription: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: '#7B8583',
+    marginTop: 4,
+  },
+
+  activityRetryButton: {
+    backgroundColor: '#304F4A',
+    borderRadius: 10,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    marginTop: 12,
+    alignSelf: 'flex-start',
+  },
+
+  activityRetryButtonText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+
+  guidanceLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-end',
+    gap: 6,
+    paddingVertical: 8,
+    marginTop: 1,
+  },
+
+  guidanceLinkText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#466B58',
+  },
+
+  journalCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 17,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#ECEDE6',
+  },
+
+  assessmentCard: {
+    marginTop: 11,
+  },
+
+  journalIconContainer: {
+    width: 47,
+    height: 47,
+    borderRadius: 15,
+    backgroundColor: '#E1EDE2',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 13,
+  },
+
+  footerText: {
+    fontSize: 11,
+    lineHeight: 18,
+    textAlign: 'center',
+    color: '#8A948D',
+    paddingHorizontal: 10,
+    marginTop: 1,
+  },
 });
